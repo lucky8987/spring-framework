@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,6 @@ package org.springframework.http;
 import java.net.URI;
 
 import org.junit.jupiter.api.Test;
-
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -51,10 +48,10 @@ class HttpEntityTests {
 
 	@Test
 	void multiValueMap() {
-		MultiValueMap<String, String> map = new LinkedMultiValueMap<>();
-		map.set("Content-Type", "text/plain");
+		HttpHeaders headers = new HttpHeaders();
+		headers.set("Content-Type", "text/plain");
 		String body = "foo";
-		HttpEntity<String> entity = new HttpEntity<>(body, map);
+		HttpEntity<String> entity = new HttpEntity<>(body, headers);
 		assertThat(entity.getBody()).isEqualTo(body);
 		assertThat(entity.getHeaders().getContentType()).isEqualTo(MediaType.TEXT_PLAIN);
 		assertThat(entity.getHeaders().getFirst("Content-Type")).isEqualTo("text/plain");

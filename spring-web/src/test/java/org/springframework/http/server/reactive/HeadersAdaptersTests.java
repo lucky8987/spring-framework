@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -123,6 +123,7 @@ class HeadersAdaptersTests {
 	}
 
 	@ParameterizedPopulatedHeadersTest
+	@SuppressWarnings("deprecation")
 	void copyUsingEntrySetPutRemovesDuplicates(MultiValueMap<String, String> headers) {
 		HttpHeaders headers2 = new HttpHeaders();
 		for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
@@ -132,15 +133,15 @@ class HeadersAdaptersTests {
 		assertThat(headers2.get("TestHeader")).as("TestHeader")
 				.containsExactly("first", "second", "third");
 		// Ordering and casing are not guaranteed using the entrySet+put approach
-		assertThat(headers2.asMultiValueMap()).as("two keys")
-				.containsKey("testheader")
-				.containsKey("secondheader")
-				.hasSize(2);
+		assertThat(headers2.containsHeader("testheader")).isTrue();
+		assertThat(headers2.containsHeader("secondheader")).isTrue();
+		assertThat(headers2.size()).isEqualTo(2);
 		assertThat(headers2.toString()).as("no 'with native headers' dump")
 				.doesNotContain("with native headers");
 	}
 
 	@ParameterizedPopulatedHeadersTest
+	@SuppressWarnings("deprecation")
 	void copyUsingPutAllRemovesDuplicates(MultiValueMap<String, String> headers) {
 		HttpHeaders headers2 = new HttpHeaders();
 		headers2.putAll(headers);
@@ -148,10 +149,9 @@ class HeadersAdaptersTests {
 		assertThat(headers2.get("TestHeader")).as("TestHeader")
 				.containsExactly("first", "second", "third");
 		// Ordering and casing are not guaranteed using the putAll approach
-		assertThat(headers2.asMultiValueMap()).as("two keys")
-				.containsKey("testheader")
-				.containsKey("secondheader")
-				.hasSize(2);
+		assertThat(headers2.containsHeader("testheader")).isTrue();
+		assertThat(headers2.containsHeader("secondheader")).isTrue();
+		assertThat(headers2.size()).isEqualTo(2);
 		assertThat(headers2.toString()).as("similar toString, no 'with native headers' dump")
 				.isEqualToIgnoringCase(headers.toString().substring(0, headers.toString().indexOf(']') + 1));
 	}

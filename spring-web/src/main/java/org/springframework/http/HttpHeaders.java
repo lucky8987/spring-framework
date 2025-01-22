@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1847,11 +1847,11 @@ public class HttpHeaders implements Serializable {
 	 * casing variants of a given header name, see {@link #asMultiValueMap()}
 	 * javadoc.
 	 * @return a single value representation of these headers
-	 * @deprecated Use {@link #toSingleValueMap()} which performs a copy but
+	 * @deprecated in favor of {@link #toSingleValueMap()} which performs a copy but
 	 * ensures that collection-iterating methods like {@code entrySet()} are
 	 * case-insensitive
 	 */
-	@Deprecated
+	@Deprecated(since = "7.0", forRemoval = true)
 	public Map<String, String> asSingleValueMap() {
 		return this.headers.asSingleValueMap();
 	}
@@ -1870,7 +1870,7 @@ public class HttpHeaders implements Serializable {
 	 * that would only accept maps. Generally avoid using HttpHeaders as a Map
 	 * or MultiValueMap.
 	 */
-	@Deprecated
+	@Deprecated(since = "7.0", forRemoval = true)
 	public MultiValueMap<String, String> asMultiValueMap() {
 		return this.headers;
 	}
@@ -1921,12 +1921,14 @@ public class HttpHeaders implements Serializable {
 	}
 
 	/**
-	 * Get the list of values associated with the given header name.
+	 * Get the list of values associated with the given header name, or null.
+	 * <p>To ensure support for double-quoted values, see also
+	 * {@link #getValuesAsList(String)}.
 	 * @param headerName the header name
 	 * @since 7.0
+	 * @see #getValuesAsList(String)
 	 */
-	@Nullable
-	public List<String> get(String headerName) {
+	public @Nullable List<String> get(String headerName) {
 		return this.headers.get(headerName);
 	}
 
