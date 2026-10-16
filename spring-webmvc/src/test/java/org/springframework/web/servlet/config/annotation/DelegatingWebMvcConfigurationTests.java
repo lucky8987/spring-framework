@@ -38,6 +38,7 @@ import org.springframework.web.bind.support.ConfigurableWebBindingInitializer;
 import org.springframework.web.context.support.GenericWebApplicationContext;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.HandlerMethodReturnValueHandler;
+import org.springframework.web.servlet.ErrorResponseViewResolver;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 import org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping;
 import org.springframework.web.servlet.handler.HandlerExceptionResolverComposite;
@@ -52,6 +53,7 @@ import org.springframework.web.util.UrlPathHelper;
 import org.springframework.web.util.pattern.PathPatternParser;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -62,7 +64,7 @@ import static org.mockito.Mockito.verify;
  * @author Rossen Stoyanchev
  */
 @ExtendWith(MockitoExtension.class)
-public class DelegatingWebMvcConfigurationTests {
+class DelegatingWebMvcConfigurationTests {
 
 	@Mock
 	private WebMvcConfigurer webMvcConfigurer;
@@ -112,8 +114,7 @@ public class DelegatingWebMvcConfigurationTests {
 
 		assertThat(initializer).isNotNull();
 		assertThat(initializer.getConversionService()).isSameAs(conversionService.getValue());
-		boolean condition = initializer.getValidator() instanceof LocalValidatorFactoryBean;
-		assertThat(condition).isTrue();
+		assertThat(initializer.getValidator()).isInstanceOf(LocalValidatorFactoryBean.class);
 		assertThat(resolvers.getValue()).isEmpty();
 		assertThat(handlers.getValue()).isEmpty();
 		assertThat(adapter.getMessageConverters()).isEqualTo(converters.getValue());
@@ -171,12 +172,9 @@ public class DelegatingWebMvcConfigurationTests {
 		verify(webMvcConfigurer).configureHandlerExceptionResolvers(exceptionResolvers.capture());
 
 		assertThat(exceptionResolvers.getValue()).hasSize(3);
-		boolean condition2 = exceptionResolvers.getValue().get(0) instanceof ExceptionHandlerExceptionResolver;
-		assertThat(condition2).isTrue();
-		boolean condition1 = exceptionResolvers.getValue().get(1) instanceof ResponseStatusExceptionResolver;
-		assertThat(condition1).isTrue();
-		boolean condition = exceptionResolvers.getValue().get(2) instanceof DefaultHandlerExceptionResolver;
-		assertThat(condition).isTrue();
+		assertThat(exceptionResolvers.getValue().get(0)).isInstanceOf(ExceptionHandlerExceptionResolver.class);
+		assertThat(exceptionResolvers.getValue().get(1)).isInstanceOf(ResponseStatusExceptionResolver.class);
+		assertThat(exceptionResolvers.getValue().get(2)).isInstanceOf(DefaultHandlerExceptionResolver.class);
 		assertThat(converters.getValue()).isNotEmpty();
 	}
 
@@ -198,7 +196,7 @@ public class DelegatingWebMvcConfigurationTests {
 	}
 
 	@Test
-	public void addErrorResponseInterceptors() {
+	void addErrorResponseInterceptors() {
 		ErrorResponse.Interceptor interceptor = (detail, errorResponse) -> {};
 		WebMvcConfigurer configurer = new WebMvcConfigurer() {
 			@Override
@@ -225,9 +223,60 @@ public class DelegatingWebMvcConfigurationTests {
 		assertThat(resolver.getErrorResponseInterceptors()).containsExactly(interceptor);
 	}
 
+	@Test
+	void problemDetailsAreNotConfiguredByDefault() {
+		webMvcConfig.setConfigurers(Collections.singletonList(webMvcConfigurer));
+
+		ExceptionHandlerExceptionResolver resolver = exceptionHandlerExceptionResolver();
+
+		verify(webMvcConfigurer).configureProblemDetails(any(ProblemDetailsConfigurer.class));
+		assertThat(resolver.isRenderUnhandledExceptionsAsProblemDetails()).isFalse();
+		assertThat(resolver.getErrorResponseViewResolver()).isNull();
+	}
+
+	@Test
+	void configureProblemDetails() {
+		ErrorResponseViewResolver viewResolver = (request, problemDetail, errorResponse) -> null;
+		WebMvcConfigurer configurer = new WebMvcConfigurer() {
+			@Override
+			public void configureProblemDetails(ProblemDetailsConfigurer configurer) {
+				configurer.renderUnhandledExceptions(true).viewResolver(viewResolver);
+			}
+		};
+		webMvcConfig.setConfigurers(Collections.singletonList(configurer));
+
+		ExceptionHandlerExceptionResolver resolver = exceptionHandlerExceptionResolver();
+
+		assertThat(resolver.isRenderUnhandledExceptionsAsProblemDetails()).isTrue();
+		assertThat(resolver.getErrorResponseViewResolver()).isSameAs(viewResolver);
+	}
+
+	@Test
+	void configureProblemDetailsWithMultipleConfigurers() {
+		ErrorResponseViewResolver viewResolver = (request, problemDetail, errorResponse) -> null;
+		WebMvcConfigurer first = new WebMvcConfigurer() {
+			@Override
+			public void configureProblemDetails(ProblemDetailsConfigurer configurer) {
+				configurer.renderUnhandledExceptions(true);
+			}
+		};
+		WebMvcConfigurer second = new WebMvcConfigurer() {
+			@Override
+			public void configureProblemDetails(ProblemDetailsConfigurer configurer) {
+				configurer.viewResolver(viewResolver);
+			}
+		};
+		webMvcConfig.setConfigurers(List.of(first, second));
+
+		ExceptionHandlerExceptionResolver resolver = exceptionHandlerExceptionResolver();
+
+		assertThat(resolver.isRenderUnhandledExceptionsAsProblemDetails()).isTrue();
+		assertThat(resolver.getErrorResponseViewResolver()).isSameAs(viewResolver);
+	}
+
 	@SuppressWarnings("removal")
 	@Test
-	public void configurePathMatcher() {
+	void configurePathMatcher() {
 		PathMatcher pathMatcher = mock();
 		UrlPathHelper pathHelper = mock();
 
@@ -243,7 +292,7 @@ public class DelegatingWebMvcConfigurationTests {
 			}
 			@Override
 			public void addResourceHandlers(ResourceHandlerRegistry registry) {
-				registry.addResourceHandler("/resources/**").addResourceLocations("/");
+				registry.addResourceHandler("/resources/**").addResourceLocations("/static");
 			}
 		};
 
@@ -308,7 +357,7 @@ public class DelegatingWebMvcConfigurationTests {
 			}
 			@Override
 			public void addResourceHandlers(ResourceHandlerRegistry registry) {
-				registry.addResourceHandler("/resources/**").addResourceLocations("/");
+				registry.addResourceHandler("/resources/**").addResourceLocations("/static");
 			}
 		};
 
@@ -360,6 +409,14 @@ public class DelegatingWebMvcConfigurationTests {
 
 		assertThat(webMvcConfig.mvcResourceUrlProvider().getUrlPathHelper()).isSameAs(pathHelper);
 		assertThat(webMvcConfig.mvcResourceUrlProvider().getPathMatcher()).isSameAs(pathMatcher);
+	}
+
+
+	private ExceptionHandlerExceptionResolver exceptionHandlerExceptionResolver() {
+		HandlerExceptionResolverComposite composite =
+				(HandlerExceptionResolverComposite) this.webMvcConfig.handlerExceptionResolver(
+						this.webMvcConfig.mvcContentNegotiationManager());
+		return (ExceptionHandlerExceptionResolver) composite.getExceptionResolvers().get(0);
 	}
 
 }

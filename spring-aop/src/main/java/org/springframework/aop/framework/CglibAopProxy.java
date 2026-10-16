@@ -51,7 +51,6 @@ import org.springframework.cglib.proxy.MethodProxy;
 import org.springframework.cglib.proxy.NoOp;
 import org.springframework.cglib.transform.impl.UndeclaredThrowableStrategy;
 import org.springframework.core.KotlinDetector;
-import org.springframework.core.MethodParameter;
 import org.springframework.core.SmartClassLoader;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
@@ -95,8 +94,6 @@ class CglibAopProxy implements AopProxy, Serializable {
 	private static final int INVOKE_EQUALS = 5;
 	private static final int INVOKE_HASHCODE = 6;
 
-
-	private static final String COROUTINES_FLOW_CLASS_NAME = "kotlinx.coroutines.flow.Flow";
 
 	private static final boolean COROUTINES_REACTOR_PRESENT = ClassUtils.isPresent(
 			"kotlinx.coroutines.reactor.MonoKt", CglibAopProxy.class.getClassLoader());
@@ -292,8 +289,13 @@ class CglibAopProxy implements AopProxy, Serializable {
 					if (Modifier.isFinal(mod)) {
 						if (logger.isWarnEnabled() && Modifier.isPublic(mod)) {
 							if (implementsInterface(method, ifcs)) {
-								logger.warn("Unable to proxy interface-implementing method [" + method + "] because " +
-										"it is marked as final, consider using interface-based JDK proxies instead.");
+								// Final methods inherited from configuration callback interfaces are
+								// typically driven by the container itself rather than by user code, so
+								// logging a warning about CGLIB being unable to advise them is misleading noise.
+								if (!implementsOnlyConfigurationCallbackInterfaces(method, ifcs)) {
+									logger.warn("Unable to proxy interface-implementing method [" + method + "] because " +
+											"it is marked as final, consider using interface-based JDK proxies instead.");
+								}
 							}
 							else {
 								logger.warn("Public final method [" + method + "] cannot get proxied via CGLIB, " +
@@ -416,6 +418,25 @@ class CglibAopProxy implements AopProxy, Serializable {
 	}
 
 	/**
+	 * Check whether every interface that declares the given method is a
+	 * configuration callback interface.
+	 * @since 7.1
+	 * @see AopProxyUtils#isConfigurationCallbackInterface(Class)
+	 */
+	static boolean implementsOnlyConfigurationCallbackInterfaces(Method method, Set<Class<?>> ifcs) {
+		boolean matched = false;
+		for (Class<?> ifc : ifcs) {
+			if (ClassUtils.hasMethod(ifc, method)) {
+				if (!AopProxyUtils.isConfigurationCallbackInterface(ifc)) {
+					return false;
+				}
+				matched = true;
+			}
+		}
+		return matched;
+	}
+
+	/**
 	 * Process a return value. Wraps a return of {@code this} if necessary to be the
 	 * {@code proxy} and also verifies that {@code null} is not returned as a primitive.
 	 * Also takes care of the conversion from {@code Mono} to Kotlin Coroutines if needed.
@@ -436,9 +457,7 @@ class CglibAopProxy implements AopProxy, Serializable {
 					"Null return value from advice does not match primitive return type for: " + method);
 		}
 		if (COROUTINES_REACTOR_PRESENT && KotlinDetector.isSuspendingFunction(method)) {
-			return COROUTINES_FLOW_CLASS_NAME.equals(new MethodParameter(method, -1).getParameterType().getName()) ?
-					CoroutinesUtils.asFlow(returnValue) :
-					CoroutinesUtils.awaitSingleOrNull(returnValue, arguments[arguments.length - 1]);
+			return CoroutinesUtils.adaptReturnValue(method, returnValue, arguments[arguments.length - 1]);
 		}
 		return returnValue;
 	}

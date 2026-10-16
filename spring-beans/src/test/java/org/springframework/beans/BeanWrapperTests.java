@@ -264,7 +264,7 @@ class BeanWrapperTests extends AbstractPropertyAccessorTests {
 		accessor.setPropertyValue("object", tb);
 		assertThat(target.value).isSameAs(tb);
 		assertThat(target.getObject()).containsSame(tb);
-		assertThat(((Optional<TestBean>) accessor.getPropertyValue("object"))).containsSame(tb);
+		assertThat((Optional<TestBean>) accessor.getPropertyValue("object")).containsSame(tb);
 		assertThat(target.value.getName()).isEqualTo("x");
 		assertThat(target.getObject().get().getName()).isEqualTo("x");
 		assertThat(accessor.getPropertyValue("object.name")).isEqualTo("x");
@@ -272,7 +272,7 @@ class BeanWrapperTests extends AbstractPropertyAccessorTests {
 		accessor.setPropertyValue("object.name", "y");
 		assertThat(target.value).isSameAs(tb);
 		assertThat(target.getObject()).containsSame(tb);
-		assertThat(((Optional<TestBean>) accessor.getPropertyValue("object"))).containsSame(tb);
+		assertThat((Optional<TestBean>) accessor.getPropertyValue("object")).containsSame(tb);
 		assertThat(target.value.getName()).isEqualTo("y");
 		assertThat(target.getObject().get().getName()).isEqualTo("y");
 		assertThat(accessor.getPropertyValue("object.name")).isEqualTo("y");
@@ -294,9 +294,18 @@ class BeanWrapperTests extends AbstractPropertyAccessorTests {
 	void incompletelyQuotedKeyLeadsToPropertyException() {
 		TestBean target = new TestBean();
 		BeanWrapper accessor = createAccessor(target);
-		assertThatExceptionOfType(NotWritablePropertyException.class)
+		assertThatExceptionOfType(InvalidPropertyPathException.class)
 				.isThrownBy(() -> accessor.setPropertyValue("[']", "foobar"))
-				.satisfies(ex -> assertThat(ex.getPossibleMatches()).isNull());
+				.withMessageContaining("unterminated quote");
+	}
+
+	@Test  // gh-37275
+	void getPropertyDescriptorForMalformedPathThrowsInvalidPropertyException() {
+		TestBean target = new TestBean();
+		BeanWrapper accessor = createAccessor(target);
+		assertThatExceptionOfType(InvalidPropertyException.class)
+				.isThrownBy(() -> accessor.getPropertyDescriptor("map[unterminated"))
+				.withCauseInstanceOf(InvalidPropertyPathException.class);
 	}
 
 

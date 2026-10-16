@@ -19,7 +19,6 @@ package org.springframework.http.codec.protobuf;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentMap;
 
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
@@ -55,7 +54,7 @@ public class ProtobufHttpMessageWriter extends EncoderHttpMessageWriter<Message>
 
 	private static final String X_PROTOBUF_MESSAGE_HEADER = "X-Protobuf-Message";
 
-	private static final ConcurrentMap<Class<?>, Method> methodCache = new ConcurrentReferenceHashMap<>();
+	private static final Map<Class<?>, Method> methodCache = new ConcurrentReferenceHashMap<>();
 
 
 	/**
@@ -96,6 +95,19 @@ public class ProtobufHttpMessageWriter extends EncoderHttpMessageWriter<Message>
 	}
 
 	/**
+	 * Create a new {@code Message.Builder} instance for the given class.
+	 * <p>This method uses a ConcurrentHashMap for caching method lookups.
+	 */
+	protected static Message.Builder getMessageBuilder(Class<?> clazz) throws Exception {
+		Method method = methodCache.get(clazz);
+		if (method == null) {
+			method = clazz.getMethod("newBuilder");
+			methodCache.put(clazz, method);
+		}
+		return (Message.Builder) method.invoke(clazz);
+	}
+
+	/**
 	 * Return the {@code MediaType} to use when the input Publisher is multivalued.
 	 * @since 7.0
 	 */
@@ -116,19 +128,6 @@ public class ProtobufHttpMessageWriter extends EncoderHttpMessageWriter<Message>
 	 * @since 7.0
 	 */
 	protected void extendHeaders(ReactiveHttpOutputMessage message, Map<String, Object> hints) {
-	}
-
-	/**
-	 * Create a new {@code Message.Builder} instance for the given class.
-	 * <p>This method uses a ConcurrentHashMap for caching method lookups.
-	 */
-	private static Message.Builder getMessageBuilder(Class<?> clazz) throws Exception {
-		Method method = methodCache.get(clazz);
-		if (method == null) {
-			method = clazz.getMethod("newBuilder");
-			methodCache.put(clazz, method);
-		}
-		return (Message.Builder) method.invoke(clazz);
 	}
 
 }

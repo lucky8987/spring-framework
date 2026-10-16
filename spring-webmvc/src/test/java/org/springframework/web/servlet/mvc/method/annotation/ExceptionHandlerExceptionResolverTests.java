@@ -84,8 +84,6 @@ import static org.mockito.Mockito.mock;
 @SuppressWarnings("unused")
 class ExceptionHandlerExceptionResolverTests {
 
-	//TODO
-
 	private static int DEFAULT_RESOLVER_COUNT;
 
 	private static int DEFAULT_HANDLER_COUNT;
@@ -172,7 +170,7 @@ class ExceptionHandlerExceptionResolverTests {
 	@Test
 	void resolveNoExceptionHandlerForException() throws NoSuchMethodException {
 		Exception npe = new NullPointerException();
-		HandlerMethod handlerMethod = new HandlerMethod(new IoExceptionController(), "handle");
+		HandlerMethod handlerMethod = new HandlerMethod(new IOExceptionController(), "handle");
 		this.resolver.afterPropertiesSet();
 		ModelAndView mav = this.resolver.resolveException(this.request, this.response, handlerMethod, npe);
 
@@ -540,7 +538,7 @@ class ExceptionHandlerExceptionResolverTests {
 
 
 	@Controller
-	static class IoExceptionController {
+	static class IOExceptionController {
 
 		public void handle() {}
 

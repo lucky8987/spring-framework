@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
  *
  * @author Phillip Webb
  * @author Sam Brannen
+ * @author Chengang Guan
  */
 class RepeatableContainersTests {
 
@@ -77,6 +78,13 @@ class RepeatableContainersTests {
 				StandardRepeatablesWithContainerWithMultipleAttributesTestCase.class,
 				StandardContainerWithMultipleAttributes.class);
 			assertThat(values).containsExactly("a", "b");
+		}
+
+		@Test
+		void standardRepeatablesWhenContainerNotReferencedByRepeatableReturnsNull() {
+			Object[] values = findRepeatedAnnotationValues(RepeatableContainers.standardRepeatables(),
+					FakeRepeatablesTestCase.class, FakeStandardContainer.class);
+			assertThat(values).isNull();
 		}
 
 	}
@@ -120,7 +128,7 @@ class RepeatableContainersTests {
 			assertThatExceptionOfType(AnnotationConfigurationException.class)
 				.isThrownBy(() -> RepeatableContainers.explicitRepeatable(ExplicitRepeatable.class, InvalidNoValue.class))
 				.withMessageContaining("Invalid declaration of container type [%s] for repeatable annotation [%s]",
-					InvalidNoValue.class.getName(), ExplicitRepeatable.class.getName());
+					InvalidNoValue.class.getCanonicalName(), ExplicitRepeatable.class.getCanonicalName());
 		}
 
 		@Test
@@ -128,7 +136,7 @@ class RepeatableContainersTests {
 			assertThatExceptionOfType(AnnotationConfigurationException.class)
 				.isThrownBy(() -> RepeatableContainers.explicitRepeatable(ExplicitRepeatable.class, InvalidNotArray.class))
 				.withMessage("Container type [%s] must declare a 'value' attribute for an array of type [%s]",
-					InvalidNotArray.class.getName(), ExplicitRepeatable.class.getName());
+					InvalidNotArray.class.getCanonicalName(), ExplicitRepeatable.class.getCanonicalName());
 		}
 
 		@Test
@@ -136,7 +144,7 @@ class RepeatableContainersTests {
 			assertThatExceptionOfType(AnnotationConfigurationException.class)
 				.isThrownBy(() -> RepeatableContainers.explicitRepeatable(ExplicitRepeatable.class, InvalidWrongArrayType.class))
 				.withMessage("Container type [%s] must declare a 'value' attribute for an array of type [%s]",
-					InvalidWrongArrayType.class.getName(), ExplicitRepeatable.class.getName());
+					InvalidWrongArrayType.class.getCanonicalName(), ExplicitRepeatable.class.getCanonicalName());
 		}
 
 		@Test
@@ -151,7 +159,7 @@ class RepeatableContainersTests {
 			assertThatIllegalArgumentException()
 				.isThrownBy(() -> RepeatableContainers.explicitRepeatable(ExplicitRepeatable.class, null))
 				.withMessage("Annotation type must be a repeatable annotation: failed to resolve container type for %s",
-					ExplicitRepeatable.class.getName());
+					ExplicitRepeatable.class.getCanonicalName());
 		}
 
 	}
@@ -212,6 +220,12 @@ class RepeatableContainersTests {
 	}
 
 	@Retention(RetentionPolicy.RUNTIME)
+	@interface FakeStandardContainer {
+
+		StandardRepeatable[] value();
+	}
+
+	@Retention(RetentionPolicy.RUNTIME)
 	@Repeatable(StandardContainer.class)
 	@interface StandardRepeatable {
 
@@ -261,6 +275,10 @@ class RepeatableContainersTests {
 
 	@ExplicitContainer({ @ExplicitRepeatable("a"), @ExplicitRepeatable("b") })
 	static class ExplicitRepeatablesTestCase {
+	}
+
+	@FakeStandardContainer({ @StandardRepeatable("a"), @StandardRepeatable("b") })
+	static class FakeRepeatablesTestCase {
 	}
 
 }

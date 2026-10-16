@@ -61,6 +61,7 @@ import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.support.ConfigurableWebBindingInitializer;
 import org.springframework.web.context.ServletContextAware;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.PreFlightRequestHandler;
 import org.springframework.web.method.support.CompositeUriComponentsContributor;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.HandlerMethodReturnValueHandler;
@@ -76,8 +77,8 @@ import org.springframework.web.servlet.function.support.RouterFunctionMapping;
 import org.springframework.web.servlet.handler.AbstractHandlerMapping;
 import org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping;
 import org.springframework.web.servlet.handler.ConversionServiceExposingInterceptor;
+import org.springframework.web.servlet.handler.DefaultPreFlightRequestHandler;
 import org.springframework.web.servlet.handler.HandlerExceptionResolverComposite;
-import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 import org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver;
 import org.springframework.web.servlet.mvc.Controller;
 import org.springframework.web.servlet.mvc.HttpRequestHandlerAdapter;
@@ -224,6 +225,8 @@ public class WebMvcConfigurationSupport implements ApplicationContextAware, Serv
 	private @Nullable Map<String, CorsConfiguration> corsConfigurations;
 
 	private @Nullable AsyncSupportConfigurer asyncSupportConfigurer;
+
+	private @Nullable ProblemDetailsConfigurer problemDetailsConfigurer;
 
 
 	/**
@@ -884,7 +887,7 @@ public class WebMvcConfigurationSupport implements ApplicationContextAware, Serv
 	}
 
 	/**
-	 * Override this method to add custom {@link HttpMessageConverter messsage converters}
+	 * Override this method to add custom {@link HttpMessageConverter message converters}
 	 * to use with the {@link RequestMappingHandlerAdapter} and the
 	 * {@link ExceptionHandlerExceptionResolver}.
 	 * <p>Adding converters to the list turns off the default converters that would
@@ -1038,6 +1041,10 @@ public class WebMvcConfigurationSupport implements ApplicationContextAware, Serv
 		exceptionHandlerResolver.setCustomArgumentResolvers(getArgumentResolvers());
 		exceptionHandlerResolver.setCustomReturnValueHandlers(getReturnValueHandlers());
 		exceptionHandlerResolver.setErrorResponseInterceptors(getErrorResponseInterceptors());
+		ProblemDetailsConfigurer problemDetailsConfigurer = getProblemDetailsConfigurer();
+		exceptionHandlerResolver.setRenderUnhandledExceptionsAsProblemDetails(
+				problemDetailsConfigurer.isRenderUnhandledExceptions());
+		exceptionHandlerResolver.setErrorResponseViewResolver(problemDetailsConfigurer.getViewResolver());
 		if (JACKSON_PRESENT || JACKSON_2_PRESENT || KOTLIN_SERIALIZATION_PRESENT) {
 			List<ResponseBodyAdvice<?>> responseBodyAdvices = new ArrayList<>(2);
 			if (JACKSON_PRESENT || JACKSON_2_PRESENT) {
@@ -1082,6 +1089,28 @@ public class WebMvcConfigurationSupport implements ApplicationContextAware, Serv
 			configureErrorResponseInterceptors(this.errorResponseInterceptors);
 		}
 		return this.errorResponseInterceptors;
+	}
+
+	/**
+	 * Returns the {@link ProblemDetailsConfigurer}, as prepared by
+	 * {@link #customizeProblemDetails(ProblemDetailsConfigurer)}.
+	 * @since 7.1
+	 */
+	protected final ProblemDetailsConfigurer getProblemDetailsConfigurer() {
+		if (this.problemDetailsConfigurer == null) {
+			this.problemDetailsConfigurer = new ProblemDetailsConfigurer();
+			customizeProblemDetails(this.problemDetailsConfigurer);
+		}
+		return this.problemDetailsConfigurer;
+	}
+
+	/**
+	 * Override this method to configure how RFC 9457 problem details are
+	 * produced and rendered by the default {@code ExceptionHandlerExceptionResolver}.
+	 * @since 7.1
+	 * @see ProblemDetailsConfigurer
+	 */
+	protected void customizeProblemDetails(ProblemDetailsConfigurer configurer) {
 	}
 
 	/**
@@ -1161,11 +1190,10 @@ public class WebMvcConfigurationSupport implements ApplicationContextAware, Serv
 	protected void addCorsMappings(CorsRegistry registry) {
 	}
 
-	@SuppressWarnings("removal")
 	@Bean
 	@Lazy
-	public HandlerMappingIntrospector mvcHandlerMappingIntrospector() {
-		return new HandlerMappingIntrospector();
+	public PreFlightRequestHandler mvcPreFlightRequestHandler() {
+		return new DefaultPreFlightRequestHandler();
 	}
 
 	@Bean

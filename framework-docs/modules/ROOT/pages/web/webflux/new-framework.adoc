@@ -58,7 +58,7 @@ If a publisher cannot slow down, it has to decide whether to buffer, drop, or fa
 Reactive Streams plays an important role for interoperability. It is of interest to libraries
 and infrastructure components but less useful as an application API, because it is too
 low-level. Applications need a higher-level and richer, functional API to
-compose async logic -- similar to the Java 8 `Stream` API but not only for collections.
+compose async logic -- similar to the Java `Stream` API but not only for collections.
 This is the role that reactive libraries play.
 
 {reactor-github-org}/reactor[Reactor] is the reactive library of choice for
@@ -131,7 +131,7 @@ execution model benefits as others in this space and also provides a choice of s
 (annotated controllers and functional web endpoints), and a choice of reactive libraries
 (Reactor, RxJava, or other).
 
-* If you are interested in a lightweight, functional web framework for use with Java 8 lambdas
+* If you are interested in a lightweight, functional web framework for use with Java
 or Kotlin, you can use the Spring WebFlux functional web endpoints. That can also be a good choice
 for smaller applications or microservices with less complex requirements that can benefit
 from greater transparency and control.
@@ -167,7 +167,7 @@ unsure what benefits to look for, start by learning about how non-blocking I/O w
 Spring WebFlux is supported on Tomcat, Jetty, Servlet containers, as well as on
 non-Servlet runtimes such as Netty. All servers are adapted to a low-level,
 xref:web/webflux/reactive-spring.adoc#webflux-httphandler[common API] so that higher-level
-xref:web/webflux/new-framework.adoc#webflux-programming-models[programming models] can be supported across servers.
+<<webflux-programming-models,programming models>> can be supported across servers.
 
 Spring WebFlux does not have built-in support to start or stop a server. However, it is
 easy to xref:web/webflux/reactive-spring.adoc#webflux-web-handler-api[assemble] an application from Spring configuration and
@@ -269,7 +269,7 @@ of their own.
 === Configuring
 
 The Spring Framework does not provide support for starting and stopping
-xref:web/webflux/new-framework.adoc#webflux-server-choice[servers]. To configure the threading model for a server,
+<<webflux-server-choice,servers>>. To configure the threading model for a server,
 you need to use server-specific configuration APIs, or, if you use Spring Boot,
 check the Spring Boot configuration options for each server. You can
 xref:web/webflux-webclient/client-builder.adoc[configure] the `WebClient` directly.

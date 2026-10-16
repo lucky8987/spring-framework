@@ -20,6 +20,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -133,32 +134,48 @@ public final class Property {
 
 	private String resolveName() {
 		if (this.readMethod != null) {
-			int index = this.readMethod.getName().indexOf("get");
-			if (index != -1) {
-				index += 3;
+			String methodName = this.readMethod.getName();
+			int index;
+			// For a get/is-prefixed name, strip the prefix unless the method is a
+			// plain accessor for a data class property whose name starts with that
+			// prefix, for example, a record component named "issue"
+			if (methodName.startsWith("get")) {
+				index = (isPlainAccessor(this.readMethod) ? 0 : 3);
+			}
+			else if (methodName.startsWith("is")) {
+				index = (isPlainAccessor(this.readMethod) ? 0 : 2);
 			}
 			else {
-				index = this.readMethod.getName().indexOf("is");
-				if (index != -1) {
-					index += 2;
-				}
-				else {
-					// Record-style plain accessor method, for example, name()
-					index = 0;
-				}
+				// Plain accessor method for a data class, for example, a Java record
+				// component accessor such as name()
+				index = 0;
 			}
-			return StringUtils.uncapitalize(this.readMethod.getName().substring(index));
+			return StringUtils.uncapitalize(methodName.substring(index));
 		}
 		else if (this.writeMethod != null) {
-			int index = this.writeMethod.getName().indexOf("set");
-			if (index == -1) {
+			String methodName = this.writeMethod.getName();
+			if (!methodName.startsWith("set")) {
 				throw new IllegalArgumentException("Not a setter method");
 			}
-			index += 3;
-			return StringUtils.uncapitalize(this.writeMethod.getName().substring(index));
+			return StringUtils.uncapitalize(methodName.substring(3));
 		}
 		else {
-			throw new IllegalStateException("Property is neither readable nor writeable");
+			throw new IllegalStateException("Property is neither readable nor writable");
+		}
+	}
+
+	private static boolean isPlainAccessor(Method method) {
+		if (Modifier.isStatic(method.getModifiers()) ||
+				method.getParameterCount() > 0 || method.getReturnType() == void.class) {
+			return false;
+		}
+		try {
+			// Accessor method referring to instance field of same name?
+			Field field = method.getDeclaringClass().getDeclaredField(method.getName());
+			return !Modifier.isStatic(field.getModifiers());
+		}
+		catch (Exception ex) {
+			return false;
 		}
 	}
 
@@ -167,7 +184,7 @@ public final class Property {
 		MethodParameter write = resolveWriteMethodParameter();
 		if (write == null) {
 			if (read == null) {
-				throw new IllegalStateException("Property is neither readable nor writeable");
+				throw new IllegalStateException("Property is neither readable nor writable");
 			}
 			return read;
 		}

@@ -26,6 +26,7 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
+import jakarta.persistence.FetchType;
 import jakarta.persistence.PersistenceUnitTransactionType;
 import jakarta.persistence.SharedCacheMode;
 import jakarta.persistence.ValidationMode;
@@ -79,11 +80,17 @@ final class PersistenceUnitReader {
 
 	private static final String MANAGED_CLASS_NAME = "class";
 
+	private static final String MANAGED_PACKAGE_DESCRIPTOR = "package-descriptor";
+
+	private static final String MANAGED_MODULE_DESCRIPTOR = "module-descriptor";
+
 	private static final String EXCLUDE_UNLISTED_CLASSES = "exclude-unlisted-classes";
 
 	private static final String SHARED_CACHE_MODE = "shared-cache-mode";
 
 	private static final String VALIDATION_MODE = "validation-mode";
+
+	private static final String DEFAULT_TO_ONE_FETCH_TYPE = "default-to-one-fetch-type";
 
 	private static final String PROPERTIES = "properties";
 
@@ -112,20 +119,11 @@ final class PersistenceUnitReader {
 
 
 	/**
-	 * Parse and build all persistence unit infos defined in the specified XML file(s).
-	 * @param persistenceXmlLocation the resource location (can be a pattern)
-	 * @return the resulting PersistenceUnitInfo instances
-	 */
-	public SpringPersistenceUnitInfo[] readPersistenceUnitInfos(String persistenceXmlLocation) {
-		return readPersistenceUnitInfos(new String[] {persistenceXmlLocation});
-	}
-
-	/**
 	 * Parse and build all persistence unit infos defined in the given XML files.
 	 * @param persistenceXmlLocations the resource locations (can be patterns)
 	 * @return the resulting PersistenceUnitInfo instances
 	 */
-	public SpringPersistenceUnitInfo[] readPersistenceUnitInfos(String[] persistenceXmlLocations) {
+	public SpringPersistenceUnitInfo[] readPersistenceUnitInfos(String... persistenceXmlLocations) {
 		ErrorHandler handler = new SimpleSaxErrorHandler(logger);
 		List<SpringPersistenceUnitInfo> infos = new ArrayList<>(1);
 		String resourceLocation = null;
@@ -251,10 +249,18 @@ final class PersistenceUnitReader {
 			unitInfo.setValidationMode(ValidationMode.valueOf(validationMode));
 		}
 
+		// set JPA 4.0 default fetch type
+		String fetchType = DomUtils.getChildElementValueByTagName(persistenceUnit, DEFAULT_TO_ONE_FETCH_TYPE);
+		if (StringUtils.hasText(fetchType)) {
+			unitInfo.setDefaultToOneFetchType(FetchType.valueOf(fetchType));
+		}
+
 		parseQualifiers(persistenceUnit, unitInfo);
 		parseMappingFiles(persistenceUnit, unitInfo);
 		parseJarFiles(persistenceUnit, unitInfo);
 		parseManagedClasses(persistenceUnit, unitInfo);
+		parseManagedPackages(persistenceUnit, unitInfo);
+		parseManagedModules(persistenceUnit, unitInfo);
 		parseProperties(persistenceUnit, unitInfo);
 
 		return unitInfo;
@@ -326,6 +332,32 @@ final class PersistenceUnitReader {
 			String value = DomUtils.getTextValue(element).trim();
 			if (StringUtils.hasText(value)) {
 				unitInfo.addManagedClassName(value);
+			}
+		}
+	}
+
+	/**
+	 * Parse the {@code class} XML elements.
+	 */
+	void parseManagedPackages(Element persistenceUnit, SpringPersistenceUnitInfo unitInfo) {
+		List<Element> packages = DomUtils.getChildElementsByTagName(persistenceUnit, MANAGED_PACKAGE_DESCRIPTOR);
+		for (Element element : packages) {
+			String value = DomUtils.getTextValue(element).trim();
+			if (StringUtils.hasText(value)) {
+				unitInfo.addManagedPackage(value);
+			}
+		}
+	}
+
+	/**
+	 * Parse the {@code class} XML elements.
+	 */
+	void parseManagedModules(Element persistenceUnit, SpringPersistenceUnitInfo unitInfo) {
+		List<Element> modules = DomUtils.getChildElementsByTagName(persistenceUnit, MANAGED_MODULE_DESCRIPTOR);
+		for (Element element : modules) {
+			String value = DomUtils.getTextValue(element).trim();
+			if (StringUtils.hasText(value)) {
+				unitInfo.addManagedModule(value);
 			}
 		}
 	}

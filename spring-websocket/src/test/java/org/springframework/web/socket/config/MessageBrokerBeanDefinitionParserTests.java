@@ -384,7 +384,7 @@ class MessageBrokerBeanDefinitionParserTests {
 	}
 
 	@Test  // SPR-11623
-	public void customChannelsWithDefaultExecutor() {
+	void customChannelsWithDefaultExecutor() {
 		loadBeanDefinitions("websocket-config-broker-customchannels-default-executor.xml");
 
 		testExecutor("clientInboundChannel", Runtime.getRuntime().availableProcessors() * 2, Integer.MAX_VALUE, 60);
@@ -463,8 +463,8 @@ class MessageBrokerBeanDefinitionParserTests {
 	}
 
 	private WebSocketHandler unwrapWebSocketHandler(WebSocketHandler handler) {
-		return (handler instanceof WebSocketHandlerDecorator) ?
-				((WebSocketHandlerDecorator) handler).getLastHandler() : handler;
+		return (handler instanceof WebSocketHandlerDecorator decorator ?
+				decorator.getLastHandler() : handler);
 	}
 
 }

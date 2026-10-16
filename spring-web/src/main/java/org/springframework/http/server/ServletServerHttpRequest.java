@@ -45,10 +45,8 @@ import org.jspecify.annotations.Nullable;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.util.Assert;
-import org.springframework.util.LinkedCaseInsensitiveMap;
 import org.springframework.util.StringUtils;
 
 /**
@@ -156,46 +154,10 @@ public class ServletServerHttpRequest implements ServerHttpRequest {
 	@Override
 	public HttpHeaders getHeaders() {
 		if (this.headers == null) {
-			this.headers = new HttpHeaders();
+			this.headers = new HttpHeaders(ServletRequestHeadersAdapter.create(this.servletRequest));
 
-			for (Enumeration<?> names = this.servletRequest.getHeaderNames(); names.hasMoreElements();) {
-				String headerName = (String) names.nextElement();
-				for (Enumeration<?> headerValues = this.servletRequest.getHeaders(headerName);
-						headerValues.hasMoreElements();) {
-					String headerValue = (String) headerValues.nextElement();
-					this.headers.add(headerName, headerValue);
-				}
-			}
-
-			// HttpServletRequest exposes some headers as properties:
-			// we should include those if not already present
-			try {
-				MediaType contentType = this.headers.getContentType();
-				if (contentType == null) {
-					String requestContentType = this.servletRequest.getContentType();
-					if (StringUtils.hasLength(requestContentType)) {
-						contentType = MediaType.parseMediaType(requestContentType);
-						if (contentType.isConcrete()) {
-							this.headers.setContentType(contentType);
-						}
-					}
-				}
-				if (contentType != null && contentType.getCharset() == null) {
-					String requestEncoding = this.servletRequest.getCharacterEncoding();
-					if (StringUtils.hasLength(requestEncoding)) {
-						Charset charSet = Charset.forName(requestEncoding);
-						Map<String, String> params = new LinkedCaseInsensitiveMap<>();
-						params.putAll(contentType.getParameters());
-						params.put("charset", charSet.toString());
-						MediaType mediaType = new MediaType(contentType.getType(), contentType.getSubtype(), params);
-						this.headers.setContentType(mediaType);
-					}
-				}
-			}
-			catch (InvalidMediaTypeException ex) {
-				// Ignore: simply not exposing an invalid content type in HttpHeaders...
-			}
-
+			// HttpServletRequest exposes Content-Length as a property:
+			// we should include it if not already present
 			if (this.headers.getContentLength() < 0) {
 				int requestContentLength = this.servletRequest.getContentLength();
 				if (requestContentLength != -1) {
@@ -203,7 +165,6 @@ public class ServletServerHttpRequest implements ServerHttpRequest {
 				}
 			}
 		}
-
 		return this.headers;
 	}
 
@@ -214,14 +175,16 @@ public class ServletServerHttpRequest implements ServerHttpRequest {
 
 	@Override
 	public InetSocketAddress getLocalAddress() {
-		return new InetSocketAddress(this.servletRequest.getLocalAddr(), this.servletRequest.getLocalPort());
+		int port = Math.max(this.servletRequest.getLocalPort(), 0);
+		return new InetSocketAddress(this.servletRequest.getLocalAddr(), port);
 	}
 
 	@Override
 	public InetSocketAddress getRemoteAddress() {
 		String addressOrHost = this.servletRequest.getRemoteAddr();
 		addressOrHost = (addressOrHost != null ? addressOrHost : this.servletRequest.getRemoteHost());
-		return new InetSocketAddress(addressOrHost, this.servletRequest.getRemotePort());
+		int port = Math.max(this.servletRequest.getRemotePort(), 0);
+		return new InetSocketAddress(addressOrHost, port);
 	}
 
 	@Override

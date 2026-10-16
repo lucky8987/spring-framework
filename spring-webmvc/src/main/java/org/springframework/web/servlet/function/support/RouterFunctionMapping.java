@@ -38,8 +38,6 @@ import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.RouterFunctions;
 import org.springframework.web.servlet.function.ServerRequest;
 import org.springframework.web.servlet.handler.AbstractHandlerMapping;
-import org.springframework.web.servlet.handler.MatchableHandlerMapping;
-import org.springframework.web.servlet.handler.RequestMatchResult;
 import org.springframework.web.util.pattern.PathPattern;
 import org.springframework.web.util.pattern.PathPatternParser;
 
@@ -57,7 +55,7 @@ import org.springframework.web.util.pattern.PathPatternParser;
  * @since 5.2
  */
 @SuppressWarnings("removal")
-public class RouterFunctionMapping extends AbstractHandlerMapping implements InitializingBean, MatchableHandlerMapping {
+public class RouterFunctionMapping extends AbstractHandlerMapping implements InitializingBean {
 
 	private @Nullable RouterFunction<?> routerFunction;
 
@@ -223,6 +221,7 @@ public class RouterFunctionMapping extends AbstractHandlerMapping implements Ini
 		if (matchingPattern != null) {
 			servletRequest.removeAttribute(RouterFunctions.MATCHING_PATTERN_ATTRIBUTE);
 			servletRequest.setAttribute(BEST_MATCHING_PATTERN_ATTRIBUTE, matchingPattern.getPatternString());
+			servletRequest.setAttribute(BEST_MATCHING_PATH_PATTERN_ATTRIBUTE, matchingPattern);
 			ServerHttpObservationFilter.findObservationContext(request.servletRequest())
 					.ifPresent(context -> context.setPathPattern(matchingPattern.getPatternString()));
 		}
@@ -230,10 +229,4 @@ public class RouterFunctionMapping extends AbstractHandlerMapping implements Ini
 		servletRequest.setAttribute(RouterFunctions.REQUEST_ATTRIBUTE, request);
 	}
 
-	@SuppressWarnings("removal")
-	@Deprecated(since = "7.0", forRemoval = true)
-	@Override
-	public @Nullable RequestMatchResult match(HttpServletRequest request, String pattern) {
-		throw new UnsupportedOperationException("This HandlerMapping uses PathPatterns");
-	}
 }

@@ -175,7 +175,7 @@ public abstract class AbstractJacksonHttpMessageConverter<T extends ObjectMapper
 
 	private PrettyPrinter initSsePrettyPrinter() {
 		DefaultPrettyPrinter prettyPrinter = new DefaultPrettyPrinter();
-		prettyPrinter.indentObjectsWith(new DefaultIndenter("  ", "\ndata:"));
+		prettyPrinter.indentObjectsWith(new DefaultIndenter("  ", "\ndata: "));
 		return prettyPrinter;
 	}
 
@@ -283,6 +283,11 @@ public abstract class AbstractJacksonHttpMessageConverter<T extends ObjectMapper
 			throw new UnsupportedOperationException("MappingJacksonValue is not supported, use hints instead");
 		}
 		return this.mapperRegistrations == null || selectMapper(valueClass, mediaType) != null;
+	}
+
+	@Override
+	public boolean canWriteRepeatedly(Object o, @Nullable MediaType contentType) {
+		return true;
 	}
 
 	/**
@@ -503,6 +508,7 @@ public abstract class AbstractJacksonHttpMessageConverter<T extends ObjectMapper
 	}
 
 	@Override
+	@SuppressWarnings("removal")
 	protected boolean supportsRepeatableWrites(Object o) {
 		return true;
 	}

@@ -282,7 +282,7 @@ class and the `ApplicationListener` interface. If a bean that implements the
 Essentially, this is the standard Observer design pattern.
 
 TIP: As of Spring 4.2, the event infrastructure has been significantly improved and offers
-an xref:core/beans/context-introduction.adoc#context-functionality-events-annotation[annotation-based model] as well as the
+an <<context-functionality-events-annotation,annotation-based model>> as well as the
 ability to publish any arbitrary event (that is, an object that does not necessarily
 extend from `ApplicationEvent`). When such an object is published, we wrap it in an
 event for you.
@@ -575,7 +575,7 @@ Kotlin::
 ----
 ======
 
-NOTE: Do not define such beans to be lazy as the `ApplicationContext` will honour that and will not register the method to listen to events.
+NOTE: Do not define such beans to be lazy as the `ApplicationContext` will honor that and will not register the method to listen to events.
 
 The method signature once again declares the event type to which it listens,
 but, this time, with a flexible name and without implementing a specific listener interface.
@@ -698,7 +698,7 @@ Kotlin::
 ======
 
 NOTE: This feature is not supported for
-xref:core/beans/context-introduction.adoc#context-functionality-events-async[asynchronous listeners].
+<<context-functionality-events-async,asynchronous listeners>>.
 
 The `handleBlockedListEvent()` method publishes a new `ListUpdateEvent` for every
 `BlockedListEvent` that it handles. If you need to publish several events, you can return
@@ -946,11 +946,11 @@ Kotlin::
 [source,kotlin,indent=0,subs="verbatim,quotes"]
 ----
 	// create a startup step and start recording
-	try (val scanPackages = getApplicationStartup().start("spring.context.base-packages.scan")) {
-        // add tagging information to the current step
-        scanPackages.tag("packages", () -> Arrays.toString(basePackages));
-        // perform the actual phase we're instrumenting
-        this.scanner.scan(basePackages);
+	getApplicationStartup().start("spring.context.base-packages.scan").use { scanPackages ->
+		// add tagging information to the current step
+		scanPackages.tag("packages") { Arrays.toString(basePackages) }
+		// perform the actual phase we're instrumenting
+		this.scanner.scan(basePackages)
 	}
 ----
 ======

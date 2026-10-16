@@ -71,10 +71,10 @@ import org.springframework.web.method.support.HandlerMethodArgumentResolver;
  */
 public abstract class AbstractMessageConverterMethodArgumentResolver implements HandlerMethodArgumentResolver {
 
-	protected enum ConverterType { BASE, GENERIC, SMART };
+	protected enum ConverterType { BASE, GENERIC, SMART }
 
 
-	private static final Set<HttpMethod> SUPPORTED_METHODS = Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH);
+	private static final Set<HttpMethod> SUPPORTED_METHODS = Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.QUERY);
 
 	private static final Object NO_VALUE = new Object();
 

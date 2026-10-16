@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 /**
  * @author Arjen Poutsma
+ * @author Yanming Zhou
  */
 class CompositeCollectionTests {
 
@@ -122,8 +124,19 @@ class CompositeCollectionTests {
 		assertThat(composite.remove("foo")).isTrue();
 		assertThat(composite.contains("foo")).isFalse();
 		assertThat(first).containsExactly("bar");
-
 		assertThat(composite.remove("quux")).isFalse();
+
+		// test remove element existing in both first and second
+		first = new ArrayList<>(List.of("foo", "bar"));
+		second = new ArrayList<>(List.of("foo", "qux"));
+		composite = new CompositeCollection<>(first, second);
+
+		assertThat(composite.remove("foo")).isTrue();
+		assertThat(first).containsExactly("bar");
+		assertThat(composite.contains("foo")).isTrue();
+		assertThat(composite.remove("foo")).isTrue();
+		assertThat(second).containsExactly("qux");
+		assertThat(composite.contains("foo")).isFalse();
 	}
 
 	@Test
@@ -192,4 +205,18 @@ class CompositeCollectionTests {
 		assertThat(first).isEmpty();
 		assertThat(second).isEmpty();
 	}
+
+	@Test
+	void nullable() {
+		List<@Nullable String> first = new ArrayList<>();
+		first.add("foo");
+		first.add(null);
+		List<@Nullable String> second = new ArrayList<>();
+		second.add("bar");
+		second.add(null);
+		CompositeCollection<@Nullable String> composite = new CompositeCollection<>(first, second);
+
+		assertThat(composite).containsExactly("foo", null, "bar", null);
+	}
+
 }

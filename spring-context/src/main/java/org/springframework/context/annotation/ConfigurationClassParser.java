@@ -260,9 +260,11 @@ class ConfigurationClassParser {
 				return;
 			}
 			else if (configClass.isScanned()) {
-				String beanName = configClass.getBeanName();
-				if (StringUtils.hasLength(beanName) && this.registry.containsBeanDefinition(beanName)) {
-					this.registry.removeBeanDefinition(beanName);
+				if (existingClass.isImported()) {
+					String beanName = configClass.getBeanName();
+					if (StringUtils.hasLength(beanName) && this.registry.containsBeanDefinition(beanName)) {
+						this.registry.removeBeanDefinition(beanName);
+					}
 				}
 				// An implicitly scanned bean definition should not override an explicit import.
 				return;
@@ -443,7 +445,7 @@ class ConfigurationClassParser {
 			Set<MethodMetadata> beanMethods = retrieveBeanMethodMetadata(ifc);
 			for (MethodMetadata methodMetadata : beanMethods) {
 				if (!methodMetadata.isAbstract()) {
-					// A default method or other concrete method on a Java 8+ interface...
+					// A default method or other concrete method on a Java interface...
 					configClass.addBeanMethod(new BeanMethod(methodMetadata, configClass));
 				}
 			}
@@ -1111,10 +1113,13 @@ class ConfigurationClassParser {
 
 		public Collection<SourceClass> getAnnotationAttributes(String annType, String attribute) throws IOException {
 			Map<String, @Nullable Object> annotationAttributes = this.metadata.getAnnotationAttributes(annType, true);
-			if (annotationAttributes == null || !annotationAttributes.containsKey(attribute)) {
+			if (annotationAttributes == null) {
 				return Collections.emptySet();
 			}
 			String[] classNames = (String[]) annotationAttributes.get(attribute);
+			if (classNames == null) {
+				return Collections.emptySet();
+			}
 			Set<SourceClass> result = CollectionUtils.newLinkedHashSet(classNames.length);
 			for (String className : classNames) {
 				result.add(getRelated(className));

@@ -9,6 +9,7 @@ ivy-cache
 argfile*
 activemq-data/
 classes/
+.cursor/
 
 # Log files
 jxl.log
@@ -50,6 +51,9 @@ atlassian-ide-plugin.xml
 
 # VS Code
 .vscode/
+
+# Claude artifacts
+.claude/*
 
 cached-antora-playbook.yml
 

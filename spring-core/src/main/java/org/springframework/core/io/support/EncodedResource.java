@@ -26,8 +26,10 @@ import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.io.InputStreamSource;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
+import org.springframework.util.function.IOConsumer;
 
 /**
  * Holder that combines a {@link Resource} descriptor with a specific encoding
@@ -83,7 +85,6 @@ public class EncodedResource implements InputStreamSource {
 	}
 
 	private EncodedResource(Resource resource, @Nullable String encoding, @Nullable Charset charset) {
-		super();
 		Assert.notNull(resource, "Resource must not be null");
 		this.resource = resource;
 		this.encoding = encoding;
@@ -126,26 +127,6 @@ public class EncodedResource implements InputStreamSource {
 	}
 
 	/**
-	 * Open a {@code java.io.Reader} for the specified resource, using the specified
-	 * {@link #getCharset() Charset} or {@linkplain #getEncoding() encoding}
-	 * (if any).
-	 * @throws IOException if opening the Reader failed
-	 * @see #requiresReader()
-	 * @see #getInputStream()
-	 */
-	public Reader getReader() throws IOException {
-		if (this.charset != null) {
-			return new InputStreamReader(this.resource.getInputStream(), this.charset);
-		}
-		else if (this.encoding != null) {
-			return new InputStreamReader(this.resource.getInputStream(), this.encoding);
-		}
-		else {
-			return new InputStreamReader(this.resource.getInputStream());
-		}
-	}
-
-	/**
 	 * Open an {@code InputStream} for the specified resource, ignoring any specified
 	 * {@link #getCharset() Charset} or {@linkplain #getEncoding() encoding}.
 	 * @throws IOException if opening the InputStream failed
@@ -155,6 +136,47 @@ public class EncodedResource implements InputStreamSource {
 	@Override
 	public InputStream getInputStream() throws IOException {
 		return this.resource.getInputStream();
+	}
+
+	/**
+	 * Open a {@code java.io.Reader} for the specified resource, using the specified
+	 * {@link #getCharset() Charset} or {@linkplain #getEncoding() encoding}
+	 * (if any).
+	 * @throws IOException if opening the Reader failed
+	 * @see #requiresReader()
+	 * @see #getInputStream()
+	 */
+	public Reader getReader() throws IOException {
+		return getReader(this.resource.getInputStream());
+	}
+
+	private Reader getReader(InputStream inputStream) throws IOException {
+		if (this.charset != null) {
+			return new InputStreamReader(inputStream, this.charset);
+		}
+		else if (this.encoding != null) {
+			return new InputStreamReader(inputStream, this.encoding);
+		}
+		else {
+			return new InputStreamReader(inputStream);
+		}
+	}
+
+	/**
+	 * Process the contents of this resource through the given consumer callback.
+	 * <p>The given consumer will be invoked a single time by default - but may
+	 * also be invoked multiple times in case of a multi-content resource handle,
+	 * for example returned from a
+	 * {@link ResourceLoader#getResource getResource("classpath*:...")} call.
+	 * While {@link #getReader()} returns a merged sequence of content
+	 * in such a case, this method performs one callback per file content.
+	 * @param consumer a consumer for each Reader
+	 * @throws IOException in case of general resolution/reading failures
+	 * @since 7.1
+	 * @see Resource#consumeContent
+	 */
+	public void consumeContent(IOConsumer<Reader> consumer) throws IOException {
+		this.resource.consumeContent(inputStream -> consumer.accept(getReader(inputStream)));
 	}
 
 	/**

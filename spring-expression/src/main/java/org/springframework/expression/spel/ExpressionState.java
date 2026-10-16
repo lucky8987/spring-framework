@@ -60,6 +60,8 @@ public class ExpressionState {
 
 	private final SpelParserConfiguration configuration;
 
+	private int operationsCount;
+
 	private @Nullable Deque<TypedValue> contextObjects;
 
 	// When entering a new scope there is a new base object which should be used
@@ -73,7 +75,7 @@ public class ExpressionState {
 
 
 	public ExpressionState(EvaluationContext context) {
-		this(context, context.getRootObject(), new SpelParserConfiguration(false, false));
+		this(context, context.getRootObject(), SpelParserConfiguration.withDefaults());
 	}
 
 	public ExpressionState(EvaluationContext context, SpelParserConfiguration configuration) {
@@ -81,7 +83,7 @@ public class ExpressionState {
 	}
 
 	public ExpressionState(EvaluationContext context, TypedValue rootObject) {
-		this(context, rootObject, new SpelParserConfiguration(false, false));
+		this(context, rootObject, SpelParserConfiguration.withDefaults());
 	}
 
 	public ExpressionState(EvaluationContext context, TypedValue rootObject, SpelParserConfiguration configuration) {
@@ -140,6 +142,7 @@ public class ExpressionState {
 	 * @see EvaluationContext#assignVariable(String, Supplier)
 	 */
 	public TypedValue assignVariable(String name, Supplier<TypedValue> valueSupplier) {
+		trackOperation();
 		return this.relatedContext.assignVariable(name, valueSupplier);
 	}
 
@@ -164,6 +167,7 @@ public class ExpressionState {
 	 * @see #setVariable(String, Object)
 	 */
 	public TypedValue lookupVariable(String name) {
+		trackOperation();
 		Object value = this.relatedContext.lookupVariable(name);
 		return (value != null ? new TypedValue(value) : TypedValue.NULL);
 	}
@@ -225,6 +229,7 @@ public class ExpressionState {
 	public TypedValue operate(Operation op, @Nullable Object left, @Nullable Object right) throws EvaluationException {
 		OperatorOverloader overloader = this.relatedContext.getOperatorOverloader();
 		if (overloader.overridesOperation(op, left, right)) {
+			trackOperation();
 			Object returnValue = overloader.operate(op, left, right);
 			return new TypedValue(returnValue);
 		}
@@ -245,6 +250,18 @@ public class ExpressionState {
 
 	public SpelParserConfiguration getConfiguration() {
 		return this.configuration;
+	}
+
+	/**
+	 * Track an operation during expression evaluation.
+	 * @since 6.2.19
+	 * @see SpelParserConfiguration#getMaximumOperations()
+	 */
+	public void trackOperation() {
+		int maxOperations = this.configuration.getMaximumOperations();
+		if (++this.operationsCount >= maxOperations) {
+			throw new SpelEvaluationException(SpelMessage.MAX_OPERATIONS_EXCEEDED, maxOperations);
+		}
 	}
 
 }

@@ -30,6 +30,7 @@ import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.util.SseUtils;
 
 /**
  * A specialization of {@link ResponseBodyEmitter} for sending
@@ -196,18 +197,20 @@ public class SseEmitter extends ResponseBodyEmitter {
 
 		private final Set<DataWithMediaType> dataToSend = new LinkedHashSet<>(4);
 
-		private @Nullable StringBuilder sb;
+		private final StringBuilder sb = new StringBuilder();
 
 		private boolean hasName;
 
 		@Override
 		public SseEventBuilder id(String id) {
+			SseUtils.assertNoLineSeparator(id);
 			append("id:").append(id).append('\n');
 			return this;
 		}
 
 		@Override
 		public SseEventBuilder name(String name) {
+			SseUtils.assertNoLineSeparator(name);
 			this.hasName = true;
 			append("event:").append(name).append('\n');
 			return this;
@@ -221,7 +224,9 @@ public class SseEmitter extends ResponseBodyEmitter {
 
 		@Override
 		public SseEventBuilder comment(String comment) {
-			append(':').append(comment).append('\n');
+			append(':');
+			SseUtils.appendFieldValue("", comment, this.sb);
+			append('\n');
 			return this;
 		}
 
@@ -235,28 +240,34 @@ public class SseEmitter extends ResponseBodyEmitter {
 			if (object instanceof ModelAndView mav && !this.hasName && mav.getViewName() != null) {
 				name(mav.getViewName());
 			}
-			append("data:");
-			saveAppendedText();
+			append("data: ");
+			saveAppendedText(TEXT_PLAIN);
 			if (object instanceof String text) {
-				object = StringUtils.replace(text, "\n", "\ndata:");
+				writeStringData(text, mediaType);
 			}
-			this.dataToSend.add(new DataWithMediaType(object, mediaType));
+			else {
+				this.dataToSend.add(new DataWithMediaType(object, mediaType));
+			}
 			append('\n');
 			return this;
 		}
 
-		SseEventBuilderImpl append(String text) {
-			if (this.sb == null) {
-				this.sb = new StringBuilder();
+		private void writeStringData(String input, @Nullable MediaType mediaType) {
+			if (input.indexOf('\n') == -1 && input.indexOf('\r') == -1) {
+				this.dataToSend.add(new DataWithMediaType(input, mediaType));
 			}
+			else {
+				SseUtils.appendFieldValue("data", input, this.sb);
+				saveAppendedText(mediaType);
+			}
+		}
+
+		SseEventBuilderImpl append(String text) {
 			this.sb.append(text);
 			return this;
 		}
 
 		SseEventBuilderImpl append(char ch) {
-			if (this.sb == null) {
-				this.sb = new StringBuilder();
-			}
 			this.sb.append(ch);
 			return this;
 		}
@@ -267,14 +278,14 @@ public class SseEmitter extends ResponseBodyEmitter {
 				return Collections.emptySet();
 			}
 			append('\n');
-			saveAppendedText();
+			saveAppendedText(TEXT_PLAIN);
 			return this.dataToSend;
 		}
 
-		private void saveAppendedText() {
-			if (this.sb != null) {
-				this.dataToSend.add(new DataWithMediaType(this.sb.toString(), TEXT_PLAIN));
-				this.sb = null;
+		private void saveAppendedText(@Nullable MediaType mediaType) {
+			if (StringUtils.hasLength(this.sb)) {
+				this.dataToSend.add(new DataWithMediaType(this.sb.toString(), mediaType));
+				this.sb.setLength(0);
 			}
 		}
 	}

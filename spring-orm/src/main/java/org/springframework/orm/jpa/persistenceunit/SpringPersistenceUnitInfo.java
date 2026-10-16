@@ -23,6 +23,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 
+import jakarta.persistence.FetchType;
 import jakarta.persistence.PersistenceConfiguration;
 import jakarta.persistence.PersistenceUnitTransactionType;
 import jakarta.persistence.spi.ClassTransformer;
@@ -167,8 +168,15 @@ public class SpringPersistenceUnitInfo extends MutablePersistenceUnitInfo {
 	 */
 	public void apply(PersistenceManagedTypes managedTypes) {
 		Assert.notNull(managedTypes, "PersistenceManagedTypes must not be null");
+
 		managedTypes.getManagedClassNames().forEach(this::addManagedClassName);
-		managedTypes.getManagedPackages().forEach(this::addManagedPackage);
+		managedTypes.getManagedPackages().forEach(managedPackage -> {
+			addManagedPackage(managedPackage);
+			ModuleLayer.boot().modules().stream()
+					.filter(module -> module.isNamed() && module.getPackages().contains(managedPackage))
+					.forEach(this::addManagedModule);
+		});
+
 		URL persistenceUnitRootUrl = managedTypes.getPersistenceUnitRootUrl();
 		if (getPersistenceUnitRootUrl() == null && persistenceUnitRootUrl != null) {
 			setPersistenceUnitRootUrl(persistenceUnitRootUrl);
@@ -207,6 +215,16 @@ public class SpringPersistenceUnitInfo extends MutablePersistenceUnitInfo {
 
 		setSharedCacheMode(config.sharedCacheMode());
 		setValidationMode(config.validationMode());
+
+		// JPA 4.0 defaultToOneFetchType
+		Method defaultToOneFetchType = ClassUtils.getMethodIfAvailable(config.getClass(), "defaultToOneFetchType");
+		if (defaultToOneFetchType != null) {
+			FetchType fetchType = (FetchType) ReflectionUtils.invokeMethod(defaultToOneFetchType, config);
+			if (fetchType != null) {
+				setDefaultToOneFetchType(fetchType);
+			}
+		}
+
 		getProperties().putAll(config.properties());
 
 		// Further relevant settings from HibernatePersistenceConfiguration on Hibernate 7.1+
@@ -247,9 +265,26 @@ public class SpringPersistenceUnitInfo extends MutablePersistenceUnitInfo {
 		@SuppressWarnings({"rawtypes", "unchecked"})
 		@Override
 		public @Nullable Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-			// Fast path for SmartPersistenceUnitInfo JTA check
 			if (method.getName().equals("isConfiguredForJta")) {
+				// Fast path for SmartPersistenceUnitInfo JTA check
 				return (getTransactionType() == PersistenceUnitTransactionType.JTA);
+			}
+
+			if (method.getName().startsWith("getAll") && !excludeUnlistedClasses()) {
+				throw new UnsupportedOperationException(
+						"JPA 4.0 getAll* methods only supported with Spring-configured packagesToScan or " +
+								"with completely listed managed classes plus exclude-unlisted-classes=true");
+			}
+			switch (method.getName()) {
+				case "getAllClassNames" -> {
+					return getManagedClassNames();
+				}
+				case "getAllPackageDescriptors", "getManagedPackageDescriptors" -> {
+					return getManagedPackages();
+				}
+				case "getAllModuleDescriptors", "getManagedModuleDescriptors" -> {
+					return getManagedModules();
+				}
 			}
 
 			// Regular methods to be delegated to SpringPersistenceUnitInfo

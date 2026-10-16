@@ -61,9 +61,9 @@ import org.springframework.core.type.filter.TypeFilter;
  * {@link FactoryBean} that creates a Hibernate {@link SessionFactory}. This is the usual
  * way to set up a shared Hibernate SessionFactory in a Spring application context; the
  * SessionFactory can then be passed to data access objects via dependency injection.
+ * Compatible with Hibernate ORM 7.0-7.4 and 8.0.
  *
- * <p>Compatible with Hibernate ORM 7.1, as of Spring Framework 7.0.
- * This Hibernate-specific {@code LocalSessionFactoryBean} can be an immediate alternative
+ * <p>This Hibernate-specific {@code LocalSessionFactoryBean} can be an immediate alternative
  * to {@link org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean} for
  * common JPA purposes: The Hibernate {@code SessionFactory} will natively expose the JPA
  * {@code EntityManagerFactory} interface as well, and Hibernate {@code BeanContainer}
@@ -78,6 +78,7 @@ import org.springframework.core.type.filter.TypeFilter;
  * @see HibernateTransactionManager
  * @see LocalSessionFactoryBuilder
  * @see org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean
+ * @see org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter
  */
 public class LocalSessionFactoryBean extends HibernateExceptionTranslator
 		implements SmartFactoryBean<SessionFactory>, ResourceLoaderAware, BeanFactoryAware,
@@ -247,7 +248,7 @@ public class LocalSessionFactoryBean extends HibernateExceptionTranslator
 	}
 
 	/**
-	 * Set a Hibernate 5 {@link ImplicitNamingStrategy} for the SessionFactory.
+	 * Set a Hibernate {@link ImplicitNamingStrategy} for the SessionFactory.
 	 * @see Configuration#setImplicitNamingStrategy
 	 */
 	public void setImplicitNamingStrategy(ImplicitNamingStrategy implicitNamingStrategy) {
@@ -255,7 +256,7 @@ public class LocalSessionFactoryBean extends HibernateExceptionTranslator
 	}
 
 	/**
-	 * Set a Hibernate 5 {@link PhysicalNamingStrategy} for the SessionFactory.
+	 * Set a Hibernate {@link PhysicalNamingStrategy} for the SessionFactory.
 	 * @see Configuration#setPhysicalNamingStrategy
 	 */
 	public void setPhysicalNamingStrategy(PhysicalNamingStrategy physicalNamingStrategy) {

@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.retry.RetryException;
 import org.springframework.core.retry.RetryListener;
 import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryState;
 import org.springframework.core.retry.Retryable;
 
 import static org.mockito.Mockito.mock;
@@ -34,6 +35,7 @@ import static org.mockito.Mockito.verify;
  *
  * @author Mahmoud Ben Hassine
  * @author Sam Brannen
+ * @author Chengang Guan
  * @since 7.0
  */
 class CompositeRetryListenerTests {
@@ -54,35 +56,6 @@ class CompositeRetryListenerTests {
 	}
 
 	@Test
-	void beforeRetry() {
-		compositeRetryListener.beforeRetry(retryPolicy, retryable);
-
-		verify(listener1).beforeRetry(retryPolicy, retryable);
-		verify(listener2).beforeRetry(retryPolicy, retryable);
-		verify(listener3).beforeRetry(retryPolicy, retryable);
-	}
-
-	@Test
-	void onRetrySuccess() {
-		Object result = new Object();
-		compositeRetryListener.onRetrySuccess(retryPolicy, retryable, result);
-
-		verify(listener1).onRetrySuccess(retryPolicy, retryable, result);
-		verify(listener2).onRetrySuccess(retryPolicy, retryable, result);
-		verify(listener3).onRetrySuccess(retryPolicy, retryable, result);
-	}
-
-	@Test
-	void onRetryFailure() {
-		Exception exception = new Exception();
-		compositeRetryListener.onRetryFailure(retryPolicy, retryable, exception);
-
-		verify(listener1).onRetryFailure(retryPolicy, retryable, exception);
-		verify(listener2).onRetryFailure(retryPolicy, retryable, exception);
-		verify(listener3).onRetryFailure(retryPolicy, retryable, exception);
-	}
-
-	@Test
 	void onRetryableExecution() {
 		RetryException exception = new RetryException("", new Exception());
 		compositeRetryListener.onRetryableExecution(retryPolicy, retryable, exception);
@@ -90,6 +63,38 @@ class CompositeRetryListenerTests {
 		verify(listener1).onRetryableExecution(retryPolicy, retryable, exception);
 		verify(listener2).onRetryableExecution(retryPolicy, retryable, exception);
 		verify(listener3).onRetryableExecution(retryPolicy, retryable, exception);
+	}
+
+	@Test
+	void beforeRetry() {
+		RetryException exception = new RetryException("", new Exception());
+		compositeRetryListener.beforeRetry(retryPolicy, retryable, exception);
+
+		verify(listener1).beforeRetry(retryPolicy, retryable, exception);
+		verify(listener2).beforeRetry(retryPolicy, retryable, exception);
+		verify(listener3).beforeRetry(retryPolicy, retryable, exception);
+	}
+
+	@Test
+	void onRetrySuccess() {
+		Object result = new Object();
+		RetryState successState = new RetryException("", new Exception());
+		compositeRetryListener.onRetrySuccess(retryPolicy, retryable, successState, result);
+
+		verify(listener1).onRetrySuccess(retryPolicy, retryable, successState, result);
+		verify(listener2).onRetrySuccess(retryPolicy, retryable, successState, result);
+		verify(listener3).onRetrySuccess(retryPolicy, retryable, successState, result);
+	}
+
+	@Test
+	void onRetryFailure() {
+		Exception exception = new Exception();
+		RetryState failState = new RetryException("", new Exception());
+		compositeRetryListener.onRetryFailure(retryPolicy, retryable, failState, exception);
+
+		verify(listener1).onRetryFailure(retryPolicy, retryable, failState, exception);
+		verify(listener2).onRetryFailure(retryPolicy, retryable, failState, exception);
+		verify(listener3).onRetryFailure(retryPolicy, retryable, failState, exception);
 	}
 
 	@Test

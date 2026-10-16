@@ -26,6 +26,7 @@ import java.util.Map;
 import org.jspecify.annotations.Nullable;
 
 import org.springframework.util.Assert;
+import org.springframework.util.ClassUtils;
 import org.springframework.util.ConcurrentReferenceHashMap;
 import org.springframework.util.ReflectionUtils;
 
@@ -80,7 +81,8 @@ final class AttributeMethods {
 				foundNestedAnnotation = true;
 			}
 			ReflectionUtils.makeAccessible(method);
-			this.canThrowTypeNotPresentException[i] = (type == Class.class || type == Class[].class || type.isEnum());
+			this.canThrowTypeNotPresentException[i] = (type == Class.class || type == Class[].class ||
+					type.isEnum() || (type.isArray() && type.componentType().isEnum()));
 		}
 		this.hasDefaultValueMethod = foundDefaultValueMethod;
 		this.hasNestedAnnotation = foundNestedAnnotation;
@@ -130,7 +132,7 @@ final class AttributeMethods {
 	 * {@code Class.getAnnotations() failure} on a regular JVM).
 	 * @param annotation the annotation to validate
 	 * @throws IllegalStateException if a declared {@code Class} attribute could not be read
-	 * @see #canLoad(Annotation)
+	 * @see #canLoad(Annotation, AnnotatedElement)
 	 */
 	void validate(Annotation annotation) {
 		assertAnnotation(annotation);
@@ -143,8 +145,9 @@ final class AttributeMethods {
 					throw ex;
 				}
 				catch (Throwable ex) {
-					throw new IllegalStateException("Could not obtain annotation attribute value for " +
-							get(i).getName() + " declared on @" + getName(annotation.annotationType()), ex);
+					throw new IllegalStateException(
+							"Could not obtain annotation attribute value for " + get(i).getName() +
+							" declared on @" + ClassUtils.getCanonicalName(annotation.annotationType()), ex);
 				}
 			}
 		}
@@ -305,13 +308,8 @@ final class AttributeMethods {
 		if (attributeName == null) {
 			return "(none)";
 		}
-		String in = (annotationType != null ? " in annotation [" + annotationType.getName() + "]" : "");
+		String in = (annotationType != null ? " in annotation [" + ClassUtils.getCanonicalName(annotationType) + "]" : "");
 		return "attribute '" + attributeName + "'" + in;
-	}
-
-	private static String getName(Class<?> clazz) {
-		String canonicalName = clazz.getCanonicalName();
-		return (canonicalName != null ? canonicalName : clazz.getName());
 	}
 
 }

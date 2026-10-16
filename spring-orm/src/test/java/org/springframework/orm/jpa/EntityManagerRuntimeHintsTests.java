@@ -17,13 +17,11 @@
 package org.springframework.orm.jpa;
 
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.Query;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
-import org.hibernate.query.CommonQueryContract;
-import org.hibernate.query.SelectionQuery;
-import org.hibernate.query.hql.spi.SqmQueryImplementor;
-import org.hibernate.query.spi.DomainQueryExecutionContext;
-import org.hibernate.query.sqm.spi.InterpretationsKeySource;
+import org.hibernate.StatelessSession;
+import org.hibernate.jpa.boot.internal.PersistenceUnitInfoDescriptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -47,8 +45,7 @@ class EntityManagerRuntimeHintsTests {
 	@BeforeEach
 	void setup() {
 		AotServices.factories().load(RuntimeHintsRegistrar.class)
-				.forEach(registrar -> registrar.registerHints(this.hints,
-						ClassUtils.getDefaultClassLoader()));
+				.forEach(registrar -> registrar.registerHints(this.hints, ClassUtils.getDefaultClassLoader()));
 	}
 
 	@Test
@@ -61,6 +58,12 @@ class EntityManagerRuntimeHintsTests {
 	void entityManagerProxyHasHibernateHints() {
 		assertThat(RuntimeHintsPredicates.proxies().forInterfaces(Session.class, EntityManagerProxy.class))
 				.accepts(this.hints);
+		assertThat(RuntimeHintsPredicates.proxies().forInterfaces(StatelessSession.class)).accepts(this.hints);
+	}
+
+	@Test
+	void entityManagerFactoryHasFallbackQueryProxyHints() {
+		assertThat(RuntimeHintsPredicates.proxies().forInterfaces(Query.class)).accepts(this.hints);
 	}
 
 	@Test
@@ -70,12 +73,9 @@ class EntityManagerRuntimeHintsTests {
 	}
 
 	@Test
-	void sqmQueryHints() {
-		assertThat(RuntimeHintsPredicates.proxies().forInterfaces(
-				SqmQueryImplementor.class,
-				InterpretationsKeySource.class,
-				DomainQueryExecutionContext.class,
-				SelectionQuery.class,
-				CommonQueryContract.class)).accepts(this.hints);
+	void persistenceUnitInfoDescriptorHasReflectionHints() {
+		assertThat(RuntimeHintsPredicates.reflection().onMethodInvocation(PersistenceUnitInfoDescriptor.class, "getName"))
+				.accepts(this.hints);
 	}
+
 }

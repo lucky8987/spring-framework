@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * @author Rossen Stoyanchev
  */
-public class RestClientProxyRegistryIntegrationTests {
+class RestClientProxyRegistryIntegrationTests {
 
 	private final MockWebServer server = new MockWebServer();
 
@@ -120,7 +120,7 @@ public class RestClientProxyRegistryIntegrationTests {
 			@Override
 			protected boolean isEligibleForOverriding(String className) {
 				return className.contains("EchoA");
-			};
+			}
 		};
 
 		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();

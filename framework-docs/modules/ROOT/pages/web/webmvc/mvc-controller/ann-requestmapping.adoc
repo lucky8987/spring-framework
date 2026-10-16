@@ -25,7 +25,7 @@ There are also HTTP method specific shortcut variants of `@RequestMapping`:
 * `@PatchMapping`
 
 The shortcuts are
-xref:web/webmvc/mvc-controller/ann-requestmapping.adoc#mvc-ann-requestmapping-composed[Custom Annotations]
+<<mvc-ann-requestmapping-composed,Custom Annotations>>
 that are provided because, arguably, most controller methods should be mapped to a specific
 HTTP method versus using `@RequestMapping`, which, by default, matches to all HTTP methods.
 A `@RequestMapping` is still needed at the class level to express shared mappings.
@@ -405,10 +405,9 @@ Kotlin::
 <1> Testing whether `myHeader` equals `myValue`.
 ======
 
-TIP: You can match `Content-Type` and `Accept` with the headers condition, but it is better to use
-xref:web/webmvc/mvc-controller/ann-requestmapping.adoc#mvc-ann-requestmapping-consumes[consumes]
-and xref:web/webmvc/mvc-controller/ann-requestmapping.adoc#mvc-ann-requestmapping-produces[produces]
-instead.
+TIP: You can match `Content-Type` and `Accept` with the headers condition, but it is
+better to use <<mvc-ann-requestmapping-consumes,consumes>> and
+<<mvc-ann-requestmapping-produces,produces>> instead.
 
 
 [[mvc-ann-requestmapping-version]]
@@ -425,7 +424,7 @@ Once API versioning is enabled, you can begin to map requests with versions.
 The `@RequestMapping` `version` attribute supports the following:
 
 - Fixed version ("1.2") -- matches the given version only
-- Baseline version ("1.2+") -- matches the given version and above
+- Baseline version ("1.2+") -- matches the given and xref:web/webmvc/mvc-config/api-version.adoc[supported versions] above
 - No value -- matches any version, but is superseded by a more specific version match
 
 If multiple controller methods have a version less than or equal to the request version,
@@ -463,7 +462,7 @@ Java::
 ----
 <1> match any version
 <2> match version 1.1
-<3> match version 1.2 and above
+<3> match version 1.2 and supported versions above
 <4> match version 1.5
 ======
 
@@ -473,6 +472,9 @@ For request with version `"1.3"`:
 - (2) does not match
 - (3) matches as it matches 1.2 and above, and is *chosen* as the highest match
 - (4) is higher and does not match
+
+NOTE: Version 1.3 must be present in the mappings, or be
+xref:web/webmvc/mvc-config/api-version.adoc[configured as supported].
 
 For request with version `"1.5"`:
 
@@ -489,10 +491,6 @@ Controller methods without a version are intended to support clients created bef
 versioned alternative was introduced. Therefore, even though an unversioned controller
 method is considered a match for any version, it is in fact given the lowest priority,
 and is effectively superseded by any alternative controller method with a version.
-
-NOTE: The above assumes the request version is a
-xref:web/webmvc/mvc-config/api-version.adoc["supported" version], or otherwise it
-would fail.
 
 See xref:web/webmvc-versioning.adoc[API Versioning] for more details on underlying
 infrastructure and support for API Versioning.
@@ -522,7 +520,7 @@ is not necessary in the common case.
 
 [[mvc-ann-requestmapping-composed]]
 == Custom Annotations
-[.small]#xref:web/webmvc/mvc-controller/ann-requestmapping.adoc#mvc-ann-requestmapping-head-options[See equivalent in the Reactive stack]#
+[.small]#<<mvc-ann-requestmapping-head-options,See equivalent in the Reactive stack>>#
 
 Spring MVC supports the use of xref:core/beans/classpath-scanning.adoc#beans-meta-annotations[composed annotations]
 for request mapping. Those are annotations that are themselves meta-annotated with
@@ -649,4 +647,4 @@ xref:web/webmvc/mvc-controller/ann-methods/arguments.adoc[@RequestMapping].
 `@HttpExchange` also supports a `headers()` parameter which accepts `"name=value"`-like
 pairs like in `@RequestMapping(headers={})` on the client side. On the server side,
 this extends to the full syntax that
-xref:#mvc-ann-requestmapping-params-and-headers[`@RequestMapping`] supports.
+<<mvc-ann-requestmapping-params-and-headers,`@RequestMapping`>> supports.

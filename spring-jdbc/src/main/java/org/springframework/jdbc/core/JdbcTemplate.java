@@ -502,7 +502,7 @@ public class JdbcTemplate extends JdbcAccessor implements JdbcOperations {
 	}
 
 	@Override
-	public <T> Stream<T> queryForStream(String sql, RowMapper<T> rowMapper) throws DataAccessException {
+	public <T extends @Nullable Object> Stream<T> queryForStream(String sql, RowMapper<T> rowMapper) throws DataAccessException {
 		class StreamStatementCallback implements StatementCallback<Stream<T>>, SqlProvider {
 			@Override
 			public Stream<T> doInStatement(Statement stmt) throws SQLException {
@@ -1046,12 +1046,12 @@ public class JdbcTemplate extends JdbcAccessor implements JdbcOperations {
 	}
 
 	@Override
-	public int[] batchUpdate(String sql, List<Object[]> batchArgs) throws DataAccessException {
+	public int[] batchUpdate(String sql, List<? extends @Nullable Object[]> batchArgs) throws DataAccessException {
 		return batchUpdate(sql, batchArgs, new int[0]);
 	}
 
 	@Override
-	public int[] batchUpdate(String sql, List<Object[]> batchArgs, int[] argTypes) throws DataAccessException {
+	public int[] batchUpdate(String sql, List<? extends @Nullable Object[]> batchArgs, int[] argTypes) throws DataAccessException {
 		if (batchArgs.isEmpty()) {
 			return new int[0];
 		}
@@ -1061,9 +1061,9 @@ public class JdbcTemplate extends JdbcAccessor implements JdbcOperations {
 				new BatchPreparedStatementSetter() {
 					@Override
 					public void setValues(PreparedStatement ps, int i) throws SQLException {
-						Object[] values = batchArgs.get(i);
+						@Nullable Object[] values = batchArgs.get(i);
 						int colIndex = 0;
-						for (Object value : values) {
+						for (@Nullable Object value : values) {
 							colIndex++;
 							if (value instanceof SqlParameterValue paramValue) {
 								StatementCreatorUtils.setParameterValue(ps, colIndex, paramValue, paramValue.getValue());
@@ -1087,6 +1087,7 @@ public class JdbcTemplate extends JdbcAccessor implements JdbcOperations {
 				});
 	}
 
+	@Deprecated(since = "7.1")
 	@Override
 	public <T> int[][] batchUpdate(String sql, Collection<T> batchArgs, int batchSize,
 			ParameterizedPreparedStatementSetter<T> pss) throws DataAccessException {
@@ -1578,7 +1579,7 @@ public class JdbcTemplate extends JdbcAccessor implements JdbcOperations {
 		ResultSet keys = ps.getGeneratedKeys();
 		if (keys != null) {
 			try {
-				RowMapperResultSetExtractor<Map<String, Object>> rse =
+				RowMapperResultSetExtractor<Map<String, @Nullable Object>> rse =
 						new RowMapperResultSetExtractor<>(getColumnMapRowMapper(), rowsExpected);
 				generatedKeys.addAll(result(rse.extractData(keys)));
 			}

@@ -21,11 +21,12 @@ import java.lang.reflect.Array;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.StringJoiner;
 
 import org.jspecify.annotations.Nullable;
 
 import org.springframework.util.Assert;
-import org.springframework.util.StringUtils;
+import org.springframework.util.ClassUtils;
 
 /**
  * {@link LinkedHashMap} subclass representing annotation attribute
@@ -126,7 +127,7 @@ public class AnnotationAttributes extends LinkedHashMap<String, @Nullable Object
 	AnnotationAttributes(Class<? extends Annotation> annotationType, boolean validated) {
 		Assert.notNull(annotationType, "'annotationType' must not be null");
 		this.annotationType = annotationType;
-		this.displayName = annotationType.getName();
+		this.displayName = ClassUtils.getCanonicalName(annotationType);
 		this.validated = validated;
 	}
 
@@ -395,8 +396,19 @@ public class AnnotationAttributes extends LinkedHashMap<String, @Nullable Object
 		if (value == this) {
 			return "(this Map)";
 		}
-		if (value instanceof Object[] objects) {
-			return "[" + StringUtils.arrayToDelimitedString(objects, ", ") + "]";
+		if (value instanceof Class<?> clazz) {
+			return ClassUtils.getCanonicalName(clazz) + ".class";
+		}
+		if (value instanceof Enum<?> enumValue) {
+			return enumValue.name();
+		}
+		if (value != null && value.getClass().isArray()) {
+			int length = Array.getLength(value);
+			StringJoiner sj = new StringJoiner(", ", "[", "]");
+			for (int i = 0; i < length; i++) {
+				sj.add(valueToString(Array.get(value, i)));
+			}
+			return sj.toString();
 		}
 		return String.valueOf(value);
 	}

@@ -23,6 +23,7 @@ import java.util.Properties;
 
 import javax.sql.DataSource;
 
+import jakarta.persistence.FetchType;
 import jakarta.persistence.PersistenceUnitTransactionType;
 import jakarta.persistence.SharedCacheMode;
 import jakarta.persistence.ValidationMode;
@@ -76,11 +77,15 @@ public class MutablePersistenceUnitInfo {
 
 	private final List<String> managedPackages = new ArrayList<>();
 
+	private final List<String> managedModules = new ArrayList<>();
+
 	private boolean excludeUnlistedClasses = false;
 
 	private SharedCacheMode sharedCacheMode = SharedCacheMode.UNSPECIFIED;
 
 	private ValidationMode validationMode = ValidationMode.AUTO;
+
+	private FetchType defaultToOneFetchType = FetchType.EAGER;
 
 	private Properties properties = new Properties();
 
@@ -189,6 +194,35 @@ public class MutablePersistenceUnitInfo {
 		return this.managedPackages;
 	}
 
+	/**
+	 * Add a managed module to the persistence provider's metadata.
+	 * <p>Note: This refers to annotated {@code module-info.java} files. It does
+	 * <i>not</i> trigger entity scanning in the specified module.
+	 * @since 7.1
+	 * @see #addManagedPackage
+	 */
+	void addManagedModule(Module module) {
+		String moduleName = module.getName();
+		if (!this.managedModules.contains(moduleName)) {
+			this.managedModules.add(moduleName);
+		}
+	}
+
+	/**
+	 * Add a managed module to the persistence provider's metadata.
+	 * <p>Note: This refers to annotated {@code module-info.java} files. It does
+	 * <i>not</i> trigger entity scanning in the specified module.
+	 * @since 7.1
+	 * @see #addManagedPackage
+	 */
+	public void addManagedModule(String moduleName) {
+		this.managedModules.add(moduleName);
+	}
+
+	public List<String> getManagedModules() {
+		return this.managedModules;
+	}
+
 	public void setExcludeUnlistedClasses(boolean excludeUnlistedClasses) {
 		this.excludeUnlistedClasses = excludeUnlistedClasses;
 	}
@@ -211,6 +245,14 @@ public class MutablePersistenceUnitInfo {
 
 	public ValidationMode getValidationMode() {
 		return this.validationMode;
+	}
+
+	public void setDefaultToOneFetchType(FetchType defaultToOneFetchType) {
+		this.defaultToOneFetchType = defaultToOneFetchType;
+	}
+
+	public FetchType getDefaultToOneFetchType() {
+		return this.defaultToOneFetchType;
 	}
 
 	public void addProperty(String name, String value) {

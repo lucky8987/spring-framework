@@ -17,10 +17,13 @@
 package org.springframework.validation;
 
 import java.beans.PropertyEditorSupport;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import org.springframework.beans.InvalidPropertyException;
+import org.springframework.beans.InvalidPropertyPathException;
 import org.springframework.beans.MutablePropertyValues;
 import org.springframework.beans.NotWritablePropertyException;
 import org.springframework.beans.NullValueInNestedPathException;
@@ -58,7 +61,7 @@ class DataBinderFieldAccessTests {
 		Map<?, ?> m = binder.getBindingResult().getModel();
 		assertThat(m).as("There is one element in map").hasSize(2);
 		FieldAccessBean tb = (FieldAccessBean) m.get("person");
-		assertThat(tb.equals(rod)).as("Same object").isTrue();
+		assertThat(tb).as("Same object").isEqualTo(rod);
 	}
 
 	@Test
@@ -135,6 +138,50 @@ class DataBinderFieldAccessTests {
 	}
 
 	@Test
+	void directFieldAccessHonorsDefaultAutoGrowCollectionLimit() {
+		FieldAccessForm target = new FieldAccessForm();
+		DataBinder binder = new DataBinder(target);
+		binder.initDirectFieldAccess();
+
+		MutablePropertyValues pvs = new MutablePropertyValues();
+		pvs.add("items[255].name", "value");
+		binder.bind(pvs);
+
+		assertThat(target.items).hasSize(256);
+		assertThat(target.items.get(255).name).isEqualTo("value");
+
+		MutablePropertyValues outOfBounds = new MutablePropertyValues();
+		outOfBounds.add("items[256].name", "too-far");
+		assertThatExceptionOfType(InvalidPropertyException.class).isThrownBy(() ->
+				binder.bind(outOfBounds));
+	}
+
+	@Test  // gh-37252
+	void directFieldAccessHonorsMaxNestedPathDepth() {
+		TestBean rod = new TestBean("rod", 31);
+		TestBean kerry = new TestBean("kerry", 35);
+		rod.setSpouse(kerry);
+		kerry.setSpouse(rod);
+
+		DataBinder binder = new DataBinder(rod, "rod");
+		binder.setMaxNestedPathDepth(2);
+		binder.initDirectFieldAccess();
+
+		MutablePropertyValues pvs = new MutablePropertyValues();
+		pvs.add("spouse.spouse.name", "Jane");
+		binder.bind(pvs);
+		assertThat(rod.getName()).isEqualTo("Jane");
+
+		MutablePropertyValues tooDeep = new MutablePropertyValues();
+		tooDeep.add("spouse.spouse.spouse.name", "Joe");
+		binder.bind(tooDeep);
+		assertThat(binder.getBindingResult().getFieldErrors("spouse.spouse.spouse.name")).singleElement().satisfies(error -> {
+			assertThat(error.getCode()).isEqualTo(InvalidPropertyPathException.ERROR_CODE);
+			assertThat(error.getRejectedValue()).isEqualTo("Joe");
+		});
+	}
+
+	@Test
 	void bindingWithErrorsAndCustomEditors() {
 		FieldAccessBean rod = new FieldAccessBean();
 		DataBinder binder = new DataBinder(rod, "person");
@@ -175,5 +222,17 @@ class DataBinderFieldAccessTests {
 				assertThat(binder.getBindingResult().getFieldValue("spouse")).isEqualTo("Kerry");
 				assertThat(tb.getSpouse()).isNotNull();
 			});
+	}
+
+
+	static class FieldAccessForm {
+
+		public List<FieldAccessItem> items;
+	}
+
+
+	static class FieldAccessItem {
+
+		public String name;
 	}
 }

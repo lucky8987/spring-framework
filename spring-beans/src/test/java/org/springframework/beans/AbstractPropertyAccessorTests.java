@@ -34,8 +34,12 @@ import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import org.springframework.beans.factory.annotation.Autowire;
 import org.springframework.beans.propertyeditors.StringArrayPropertyEditor;
@@ -56,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.within;
+import static org.springframework.beans.ConfigurablePropertyAccessor.DEFAULT_MAX_NESTED_PATH_DEPTH;
 
 /**
  * Shared tests for property accessors.
@@ -67,6 +72,7 @@ import static org.assertj.core.api.Assertions.within;
  * @author Chris Beams
  * @author Dave Syer
  * @author Stephane Nicoll
+ * @author Sam Brannen
  */
 abstract class AbstractPropertyAccessorTests {
 
@@ -223,10 +229,7 @@ abstract class AbstractPropertyAccessorTests {
 
 	@Test
 	void getAnotherNestedDeepProperty() {
-		ITestBean target = new TestBean("rod", 31);
-		ITestBean kerry = new TestBean("kerry", 35);
-		target.setSpouse(kerry);
-		kerry.setSpouse(target);
+		ITestBean target = createSpouseCycle();
 		AbstractPropertyAccessor accessor = createAccessor(target);
 		Integer KA = (Integer) accessor.getPropertyValue("spouse.age");
 		assertThat(KA).as("kerry is 35").isEqualTo(35);
@@ -289,6 +292,18 @@ abstract class AbstractPropertyAccessorTests {
 
 		assertThatExceptionOfType(NotReadablePropertyException.class).isThrownBy(() ->
 				accessor.getPropertyValue("address.bar"));
+	}
+
+	@ParameterizedTest  // gh-36999
+	@ValueSource(strings = {"address.[.city", "address.].city", "address.[[.city",
+			"address.]].city", "address.][.city", "address.[X.city", "address.X[.city"})
+	void getNestedPropertyWithUnbalancedBracket(String propertyPath) {
+		Person target = createPerson("John", "London", "UK");
+		AbstractPropertyAccessor accessor = createAccessor(target);
+
+		assertThatExceptionOfType(InvalidPropertyPathException.class)
+				.isThrownBy(() -> accessor.getPropertyValue(propertyPath))
+				.withMessageContaining("Invalid property path '" + propertyPath + "'");
 	}
 
 	@Test
@@ -375,7 +390,7 @@ abstract class AbstractPropertyAccessorTests {
 	}
 
 	@Test
-	void testErrorMessageOfNestedProperty() {
+	void errorMessageOfNestedProperty() {
 		ITestBean target = new TestBean();
 		ITestBean child = new DifferentTestBean();
 		child.setName("test");
@@ -599,11 +614,11 @@ abstract class AbstractPropertyAccessorTests {
 		AbstractPropertyAccessor accessor = createAccessor(target);
 
 		accessor.setPropertyValue("bool2", "true");
-		assertThat(Boolean.TRUE.equals(accessor.getPropertyValue("bool2"))).as("Correct bool2 value").isTrue();
+		assertThat(accessor.getPropertyValue("bool2")).as("Correct bool2 value").isEqualTo(Boolean.TRUE);
 		assertThat(target.getBool2()).as("Correct bool2 value").isTrue();
 
 		accessor.setPropertyValue("bool2", "false");
-		assertThat(Boolean.FALSE.equals(accessor.getPropertyValue("bool2"))).as("Correct bool2 value").isTrue();
+		assertThat(accessor.getPropertyValue("bool2")).as("Correct bool2 value").isEqualTo(Boolean.FALSE);
 		assertThat(target.getBool2()).as("Correct bool2 value").isFalse();
 	}
 
@@ -628,7 +643,7 @@ abstract class AbstractPropertyAccessorTests {
 		assertThat(new BigInteger("3")).as("Correct bigInteger value").isEqualTo(target.getBigInteger());
 		assertThat(Float.valueOf("8.1")).as("Correct float2 value").isEqualTo(accessor.getPropertyValue("float2"));
 		assertThat(Float.valueOf("8.1")).as("Correct float2 value").isEqualTo(target.getFloat2());
-		assertThat(Double.valueOf("6.1").equals(accessor.getPropertyValue("double2"))).as("Correct double2 value").isTrue();
+		assertThat(Double.valueOf("6.1")).as("Correct double2 value").isEqualTo(accessor.getPropertyValue("double2"));
 		assertThat(Double.valueOf("6.1")).as("Correct double2 value").isEqualTo(target.getDouble2());
 		assertThat(new BigDecimal("4.0")).as("Correct bigDecimal value").isEqualTo(accessor.getPropertyValue("bigDecimal"));
 		assertThat(new BigDecimal("4.0")).as("Correct bigDecimal value").isEqualTo(target.getBigDecimal());
@@ -651,7 +666,7 @@ abstract class AbstractPropertyAccessorTests {
 		assertThat(Integer.valueOf("8")).as("Correct int2 value").isEqualTo(target.getInt2());
 		assertThat(Long.valueOf("6")).as("Correct long2 value").isEqualTo(accessor.getPropertyValue("long2"));
 		assertThat(Long.valueOf("6")).as("Correct long2 value").isEqualTo(target.getLong2());
-		assertThat(new BigInteger("3").equals(accessor.getPropertyValue("bigInteger"))).as("Correct bigInteger value").isTrue();
+		assertThat(new BigInteger("3")).as("Correct bigInteger value").isEqualTo(accessor.getPropertyValue("bigInteger"));
 		assertThat(new BigInteger("3")).as("Correct bigInteger value").isEqualTo(target.getBigInteger());
 		assertThat(Float.valueOf("8.1")).as("Correct float2 value").isEqualTo(accessor.getPropertyValue("float2"));
 		assertThat(Float.valueOf("8.1")).as("Correct float2 value").isEqualTo(target.getFloat2());
@@ -1362,6 +1377,19 @@ abstract class AbstractPropertyAccessorTests {
 				accessor.setPropertyValue("address.bar", "value"));
 	}
 
+	@ParameterizedTest  // gh-36999
+	@ValueSource(strings = {"address.[.city", "address.].city", "address.[[.city",
+			"address.]].city", "address.][.city", "address.[X.city", "address.X[.city"})
+	void setNestedPropertyWithUnbalancedBracket(String propertyPath) {
+		Person target = createPerson("John", "Paris", "FR");
+		AbstractPropertyAccessor accessor = createAccessor(target);
+
+		assertThatExceptionOfType(InvalidPropertyPathException.class)
+				.isThrownBy(() -> accessor.setPropertyValue(propertyPath, "Zürich"))
+				.withMessageContaining("Invalid property path '" + propertyPath + "'");
+		assertThat(target.getAddress().getCity()).isEqualTo("Paris");
+	}
+
 	@Test
 	void setPropertyValuesIgnoresInvalidNestedOnRequest() {
 		ITestBean target = new TestBean();
@@ -1495,15 +1523,15 @@ abstract class AbstractPropertyAccessorTests {
 		accessor.setPropertyValues(pvs);
 		assertThat(target.getArray()[0]).isEqualTo(tb5);
 		assertThat(target.getArray()[1]).isEqualTo(tb4);
-		assertThat((target.getList().get(0))).isEqualTo(tb3);
-		assertThat((target.getList().get(1))).isEqualTo(tb2);
-		assertThat((target.getList().get(2))).isEqualTo(tb0);
-		assertThat((target.getList().get(3))).isNull();
-		assertThat((target.getList().get(4))).isEqualTo(tb1);
-		assertThat((target.getMap().get("key1"))).isEqualTo(tb1);
-		assertThat((target.getMap().get("key2"))).isEqualTo(tb0);
-		assertThat((target.getMap().get("key5"))).isEqualTo(tb4);
-		assertThat((target.getMap().get("key9"))).isEqualTo(tb5);
+		assertThat(target.getList().get(0)).isEqualTo(tb3);
+		assertThat(target.getList().get(1)).isEqualTo(tb2);
+		assertThat(target.getList().get(2)).isEqualTo(tb0);
+		assertThat(target.getList().get(3)).isNull();
+		assertThat(target.getList().get(4)).isEqualTo(tb1);
+		assertThat(target.getMap().get("key1")).isEqualTo(tb1);
+		assertThat(target.getMap().get("key2")).isEqualTo(tb0);
+		assertThat(target.getMap().get("key5")).isEqualTo(tb4);
+		assertThat(target.getMap().get("key9")).isEqualTo(tb5);
 		assertThat(accessor.getPropertyValue("array[0]")).isEqualTo(tb5);
 		assertThat(accessor.getPropertyValue("array[1]")).isEqualTo(tb4);
 		assertThat(accessor.getPropertyValue("list[0]")).isEqualTo(tb3);
@@ -1581,9 +1609,127 @@ abstract class AbstractPropertyAccessorTests {
 	}
 
 
+	@Nested  // gh-37252
+	class MaxNestedPathDepthTests {
+
+		@ParameterizedTest
+		@ValueSource(ints = {-1, Integer.MIN_VALUE})
+		void setMaxNestedPathDepthPreconditions(int depth) {
+			AbstractPropertyAccessor accessor = createAccessor(createSpouseCycle());
+
+			assertThatIllegalArgumentException()
+					.isThrownBy(() -> accessor.setMaxNestedPathDepth(depth))
+					.withMessage("'maxNestedPathDepth' must not be negative");
+		}
+
+		@Test
+		void maxNestedPathDepthOfZeroOnlyDisablesNestedPropertyPaths() {
+			AbstractPropertyAccessor accessor = createAccessor(createSpouseCycle());
+			accessor.setMaxNestedPathDepth(0);
+
+			// Simple property access is still supported.
+			assertThat(accessor.getPropertyValue("name")).isEqualTo("rod");
+			accessor.setPropertyValue("name", "ROD");
+			assertThat(accessor.getPropertyValue("name")).isEqualTo("ROD");
+
+			// As is indexed property access.
+			accessor.setPropertyValue("stringArray", new String[] {"a", "b"});
+			assertThat(accessor.getPropertyValue("stringArray[1]")).isEqualTo("b");
+			accessor.setPropertyValue("stringArray[1]", "B");
+			assertThat(accessor.getPropertyValue("stringArray[1]")).isEqualTo("B");
+
+			// As is mapped property access.
+			accessor.setPropertyValue("someMap[key]", "value");
+			assertThat(accessor.getPropertyValue("someMap[key]")).isEqualTo("value");
+
+			// Nested property paths, however, are not.
+			assertNestedPathDepthExceeded(() -> accessor.getPropertyValue(nestedSpousePath(1)), 0);
+			assertNestedPathDepthExceeded(() -> accessor.getPropertyValue(nestedSpousePath(2)), 0);
+			assertNestedPathDepthExceeded(() -> accessor.setPropertyValue(nestedSpousePath(1), "Joe"), 0);
+			assertNestedPathDepthExceeded(() -> accessor.setPropertyValue(nestedSpousePath(2), "Joe"), 0);
+		}
+
+		@Test
+		void defaultMaxNestedPathDepth() {
+			AbstractPropertyAccessor accessor = createAccessor(createSpouseCycle());
+
+			assertThat(accessor.getMaxNestedPathDepth()).isEqualTo(DEFAULT_MAX_NESTED_PATH_DEPTH);
+
+			// depth == max
+			assertThat(accessor.getPropertyValue(nestedSpousePath(DEFAULT_MAX_NESTED_PATH_DEPTH))).isEqualTo("rod");
+
+			// depth > max
+			assertNestedPathDepthExceeded(
+					() -> accessor.getPropertyValue(nestedSpousePath(DEFAULT_MAX_NESTED_PATH_DEPTH + 1)));
+		}
+
+		@Test
+		void getNestedPropertyWithCustomMaxNestedPathDepth() {
+			AbstractPropertyAccessor accessor = createAccessor(createSpouseCycle());
+			accessor.setMaxNestedPathDepth(10);
+
+			// depth < max
+			assertThat(accessor.getPropertyValue(nestedSpousePath(9))).isEqualTo("kerry");
+
+			// depth == max
+			assertThat(accessor.getPropertyValue(nestedSpousePath(10))).isEqualTo("rod");
+
+			// depth > max
+			assertNestedPathDepthExceeded(() -> accessor.getPropertyValue(nestedSpousePath(11)), 10);
+			assertNestedPathDepthExceeded(() -> accessor.getPropertyValue(nestedSpousePath(100)), 10);
+		}
+
+		@Test
+		void setNestedPropertyExceedingMaxNestedPathDepth() {
+			AbstractPropertyAccessor accessor = createAccessor(createSpouseCycle());
+			accessor.setMaxNestedPathDepth(10);
+
+			assertNestedPathDepthExceeded(() -> accessor.setPropertyValue(nestedSpousePath(11), "Jane"), 10);
+		}
+
+		@Test
+		void maxNestedPathDepthProtectsAgainstStackOverflow() {
+			AbstractPropertyAccessor accessor = createAccessor(createSpouseCycle());
+			accessor.setAutoGrowNestedPaths(true);
+
+			assertNestedPathDepthExceeded(() -> accessor.getPropertyValue(nestedSpousePath(100_000)));
+			assertNestedPathDepthExceeded(() -> accessor.setPropertyValue(nestedSpousePath(100_000), "Jane"));
+		}
+
+
+		private static String nestedSpousePath(int depth) {
+			return "spouse.".repeat(depth) + "name";
+		}
+
+		private static void assertNestedPathDepthExceeded(ThrowingCallable throwingCallable) {
+			assertNestedPathDepthExceeded(throwingCallable, DEFAULT_MAX_NESTED_PATH_DEPTH);
+		}
+
+		private static void assertNestedPathDepthExceeded(ThrowingCallable throwingCallable, int maxDepth) {
+			assertThatExceptionOfType(InvalidPropertyPathException.class)
+					.isThrownBy(throwingCallable)
+					.withMessageEndingWith("nesting depth exceeds the maximum of " + maxDepth);
+		}
+	}
+
+
 	private Person createPerson(String name, String city, String country) {
 		return new Person(name, new Address(city, country));
 	}
+
+	/**
+	 * Create two beans that are each other's spouse, so that a nested property
+	 * path consisting of any number of {@code spouse} segments can be traversed.
+	 * @return a {@code "rod"} bean, whose spouse is a {@code "kerry"} bean
+	 */
+	private static ITestBean createSpouseCycle() {
+		ITestBean rod = new TestBean("rod", 31);
+		ITestBean kerry = new TestBean("kerry", 35);
+		rod.setSpouse(kerry);
+		kerry.setSpouse(rod);
+		return rod;
+	}
+
 
 
 	@SuppressWarnings("unused")

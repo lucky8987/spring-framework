@@ -43,14 +43,16 @@ jar {
 	manifest.attributes["Implementation-Title"] = project.name
 	manifest.attributes["Implementation-Version"] = project.version
 	manifest.attributes["Automatic-Module-Name"] = project.name.replace('-', '.')  // for Jigsaw
-	manifest.attributes["Created-By"] =
-			"${System.getProperty("java.version")} (${System.getProperty("java.specification.vendor")})"
+	manifest.attributes["Build-Jdk-Spec"] = "${System.getProperty("java.specification.version")}"
 
 	from("${rootDir}/framework-docs/src/docs/dist") {
-		include "license.txt"
 		include "notice.txt"
 		into "META-INF"
 		expand(copyright: new Date().format("yyyy"), version: project.version)
+	}
+	from("${rootDir}/framework-docs/src/docs/dist") {
+		include "license.txt"
+		into "META-INF"
 	}
 }
 
@@ -84,6 +86,8 @@ javadoc {
 		// cross-module @see and @link references which are only reachable
 		// when running the global 'framework-api:javadoc' task.
 		addBooleanOption('Werror', false)
+		// do not ship 4MB of web fonts for single modules
+		addBooleanOption("-no-fonts", true)
 	}
 
 	// Attempt to suppress warnings due to cross-module @see and @link references.
@@ -92,25 +96,20 @@ javadoc {
 	logging.captureStandardOutput LogLevel.INFO  // suppress "## warnings" message
 }
 
-tasks.register('sourcesJar', Jar) {
-	dependsOn classes
-	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-	archiveClassifier.set("sources")
-	from sourceSets.main.allSource
-	// Don't include or exclude anything explicitly by default. See SPR-12085.
+java {
+	withJavadocJar()
+	withSourcesJar()
 }
 
-tasks.register('javadocJar', Jar) {
-	archiveClassifier.set("javadoc")
-	from javadoc
+tasks.named('sourcesJar', Jar).configure {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	// Don't include or exclude anything explicitly by default. See SPR-12085.
 }
 
 publishing {
 	publications {
 		mavenJava(MavenPublication) {
 			from components.java
-			artifact sourcesJar
-			artifact javadocJar
 		}
 	}
 }

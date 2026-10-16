@@ -43,22 +43,28 @@ import static org.springframework.core.ResolvableType.forClass;
  */
 class ProtobufJsonEncoderTests extends AbstractEncoderTests<ProtobufJsonEncoder> {
 
-	private Msg msg1 =
-			Msg.newBuilder().setFoo("Foo").setBlah(SecondMsg.newBuilder().setBlah(123).build()).build();
+	private Msg msg1 = Msg.newBuilder()
+			.setFoo("Foo")
+			.setBlah(SecondMsg.newBuilder().setBlah(123).build())
+			.build();
 
-	private Msg msg2 =
-			Msg.newBuilder().setFoo("Bar").setBlah(SecondMsg.newBuilder().setBlah(456).build()).build();
+	private Msg msg2 = Msg.newBuilder()
+			.setFoo("Bar")
+			.setBlah(SecondMsg.newBuilder().setBlah(456).build())
+			.build();
+
 
 	public ProtobufJsonEncoderTests() {
 		super(new ProtobufJsonEncoder(JsonFormat.printer().omittingInsignificantWhitespace()));
 	}
+
 
 	@Override
 	@Test
 	protected void canEncode() throws Exception {
 		assertThat(this.encoder.canEncode(forClass(Msg.class), null)).isFalse();
 		assertThat(this.encoder.canEncode(forClass(Msg.class), MediaType.APPLICATION_JSON)).isTrue();
-		assertThat(this.encoder.canEncode(forClass(Msg.class), MediaType.APPLICATION_NDJSON)).isFalse();
+		assertThat(this.encoder.canEncode(forClass(Msg.class), MediaType.APPLICATION_NDJSON)).isTrue();
 		assertThat(this.encoder.canEncode(forClass(Object.class), MediaType.APPLICATION_JSON)).isFalse();
 	}
 
@@ -69,7 +75,7 @@ class ProtobufJsonEncoderTests extends AbstractEncoderTests<ProtobufJsonEncoder>
 		ResolvableType inputType = forClass(Msg.class);
 
 		testEncode(input, inputType, MediaType.APPLICATION_JSON, null, step -> step
-				.assertNext(dataBuffer -> assertBufferEqualsJson(dataBuffer, "{\"foo\":\"Foo\",\"blah\":{\"blah\":123}}"))
+				.assertNext(buffer -> assertBufferEqualsJson(buffer, "{\"foo\":\"Foo\",\"blah\":{\"blah\":123}}"))
 				.verifyComplete());
 		testEncodeError(input, inputType, MediaType.APPLICATION_JSON, null);
 		testEncodeCancel(input, inputType, MediaType.APPLICATION_JSON, null);
@@ -86,19 +92,19 @@ class ProtobufJsonEncoderTests extends AbstractEncoderTests<ProtobufJsonEncoder>
 	}
 
 	@Test
-	void encodeStream() {
+	void encodeNonStream() {
 		Flux<Message> input = Flux.just(this.msg1, this.msg2);
 		ResolvableType inputType = forClass(Msg.class);
 
 		testEncode(input, inputType, MediaType.APPLICATION_JSON, null, step -> step
-				.assertNext(dataBuffer -> assertBufferEqualsJson(dataBuffer, "[{\"foo\":\"Foo\",\"blah\":{\"blah\":123}}"))
-				.assertNext(dataBuffer -> assertBufferEqualsJson(dataBuffer, ",{\"foo\":\"Bar\",\"blah\":{\"blah\":456}}"))
-				.assertNext(dataBuffer -> assertBufferEqualsJson(dataBuffer, "]"))
+				.assertNext(buffer -> assertBufferEqualsJson(buffer, "[{\"foo\":\"Foo\",\"blah\":{\"blah\":123}}"))
+				.assertNext(buffer -> assertBufferEqualsJson(buffer, ",{\"foo\":\"Bar\",\"blah\":{\"blah\":456}}"))
+				.assertNext(buffer -> assertBufferEqualsJson(buffer, "]"))
 				.verifyComplete());
 	}
 
 	@Test
-	void encodeEmptyFlux() {
+	void encodeNonStreamEmpty() {
 		Flux<Message> input = Flux.empty();
 		ResolvableType inputType = forClass(Msg.class);
 		Flux<DataBuffer> result = this.encoder.encode(input, this.bufferFactory, inputType,
@@ -109,6 +115,16 @@ class ProtobufJsonEncoderTests extends AbstractEncoderTests<ProtobufJsonEncoder>
 				.verifyComplete();
 	}
 
+	@Test
+	void encodeStream() {
+		Flux<Message> input = Flux.just(this.msg1, this.msg2);
+		ResolvableType inputType = forClass(Msg.class);
+
+		testEncode(input, inputType, MediaType.APPLICATION_NDJSON, null, step -> step
+				.assertNext(buffer -> assertBufferEqualsJson(buffer, "{\"foo\":\"Foo\",\"blah\":{\"blah\":123}}\n"))
+				.assertNext(buffer -> assertBufferEqualsJson(buffer, "{\"foo\":\"Bar\",\"blah\":{\"blah\":456}}\n"))
+				.verifyComplete());
+	}
 
 	private void assertBufferEqualsJson(DataBuffer actual, String expected) {
 		byte[] bytes = DataBufferTestUtils.dumpBytes(actual);

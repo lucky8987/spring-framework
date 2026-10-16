@@ -44,6 +44,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.filter.ServerHttpObservationFilter;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -167,6 +168,13 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	protected static final Log pageNotFoundLogger = LogFactory.getLog(PAGE_NOT_FOUND_LOG_CATEGORY);
 
 
+	private static final String DISCONNECTED_CLIENT_LOG_CATEGORY =
+			"org.springframework.web.servlet.handler.DisconnectedClient";
+
+	private static final DisconnectedClientHelper disconnectedClientHelper =
+			new DisconnectedClientHelper(DISCONNECTED_CLIENT_LOG_CATEGORY);
+
+
 	/**
 	 * Sets the {@linkplain #setOrder(int) order} to {@link #LOWEST_PRECEDENCE}.
 	 */
@@ -246,7 +254,7 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 				return handleAsyncRequestNotUsableException(
 						(AsyncRequestNotUsableException) ex, request, response, handler);
 			}
-			else if (DisconnectedClientHelper.isClientDisconnectedException(ex)) {
+			else if (disconnectedClientHelper.checkAndLogClientDisconnectedException(ex)) {
 				return handleDisconnectedClientException(ex, request, response, handler);
 			}
 		}
@@ -506,11 +514,11 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	}
 
 	/**
-	 * Handle an Exception that indicates the client has gone away. This is
-	 * typically an {@link IOException} of a specific subtype or with a message
-	 * specific to the underlying Servlet container. Those are detected through
-	 * {@link DisconnectedClientHelper#isClientDisconnectedException(Throwable)}
-	 * <p>By default, do nothing since the response is not usable.
+	 * Handle an Exception that indicates the client has gone away as determined
+	 * via {@link DisconnectedClientHelper}.
+	 * <p>By default, as of 7.1 this method attempts to set the response status
+	 * to 500 in case the exception is due to a connection issue to a remote host,
+	 * as part of request handling, rather than to the client.
 	 * @param ex the {@code Exception} to be handled
 	 * @param request current HTTP request
 	 * @param response current HTTP response
@@ -522,6 +530,13 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	protected ModelAndView handleDisconnectedClientException(
 			Exception ex, HttpServletRequest request, HttpServletResponse response, @Nullable Object handler) {
 
+		// Attempt to send 500 in case of onward (rather than client) connection issue
+		try {
+			sendServerError(ex, request, response);
+		}
+		catch (Exception ex2) {
+			// ignore
+		}
 		return new ModelAndView();
 	}
 
@@ -531,6 +546,8 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	 * to those obtained from the {@code ErrorResponse}. If available, the
 	 * {@link ProblemDetail#getDetail()} is used as the message for
 	 * {@link HttpServletResponse#sendError(int, String)}.
+	 * <p>As of 7.1, if the status is a 5xx server error, the exception is also
+	 * recorded as the error of the current HTTP server observation, if any.
 	 * @param errorResponse the exception to be handled
 	 * @param request current HTTP request
 	 * @param response current HTTP response
@@ -541,6 +558,10 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	 */
 	protected ModelAndView handleErrorResponse(ErrorResponse errorResponse,
 			HttpServletRequest request, HttpServletResponse response, @Nullable Object handler) throws IOException {
+
+		if (errorResponse.getStatusCode().is5xxServerError() && errorResponse instanceof Exception ex) {
+			ServerHttpObservationFilter.findObservationContext(request).ifPresent(context -> context.setError(ex));
+		}
 
 		if (!response.isCommitted()) {
 			HttpHeaders headers = errorResponse.getHeaders();
@@ -605,6 +626,8 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	 * <p>The default implementation sends an HTTP 400 error, and returns an empty {@code ModelAndView}.
 	 * Alternatively, a fallback view could be chosen, or the HttpMessageNotReadableException could be
 	 * rethrown as-is.
+	 * <p>If the root cause suggests a "lost connection", handling is delegated instead to
+	 * {@link #handleDisconnectedClientException(Exception, HttpServletRequest, HttpServletResponse, Object)}.
 	 * @param ex the HttpMessageNotReadableException to be handled
 	 * @param request current HTTP request
 	 * @param response current HTTP response
@@ -614,6 +637,10 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	 */
 	protected ModelAndView handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
 			HttpServletRequest request, HttpServletResponse response, @Nullable Object handler) throws IOException {
+
+		if (DisconnectedClientHelper.isClientDisconnectedException(ex)) {
+			return handleDisconnectedClientException(ex, request, response, handler);
+		}
 
 		if (!response.isCommitted()) {
 			response.sendError(HttpServletResponse.SC_BAD_REQUEST);
@@ -631,6 +658,8 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	 * <p>The default implementation sends an HTTP 500 error, and returns an empty {@code ModelAndView}.
 	 * Alternatively, a fallback view could be chosen, or the HttpMessageNotWritableException could
 	 * be rethrown as-is.
+	 * <p>If the root cause suggests a "lost connection", handling is delegated instead to
+	 * {@link #handleDisconnectedClientException(Exception, HttpServletRequest, HttpServletResponse, Object)}.
 	 * @param ex the HttpMessageNotWritableException to be handled
 	 * @param request current HTTP request
 	 * @param response current HTTP response
@@ -640,6 +669,10 @@ public class DefaultHandlerExceptionResolver extends AbstractHandlerExceptionRes
 	 */
 	protected ModelAndView handleHttpMessageNotWritable(HttpMessageNotWritableException ex,
 			HttpServletRequest request, HttpServletResponse response, @Nullable Object handler) throws IOException {
+
+		if (DisconnectedClientHelper.isClientDisconnectedException(ex)) {
+			return handleDisconnectedClientException(ex, request, response, handler);
+		}
 
 		if (!response.isCommitted()) {
 			sendServerError(ex, request, response);

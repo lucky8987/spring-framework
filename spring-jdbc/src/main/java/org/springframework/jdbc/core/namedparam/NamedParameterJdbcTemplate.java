@@ -69,6 +69,7 @@ import org.springframework.util.ConcurrentLruCache;
  *
  * @author Thomas Risberg
  * @author Juergen Hoeller
+ * @author Yanming Zhou
  * @since 2.0
  * @see NamedParameterJdbcOperations
  * @see SqlParameterSource
@@ -232,7 +233,7 @@ public class NamedParameterJdbcTemplate implements NamedParameterJdbcOperations 
 	}
 
 	@Override
-	public <T> List<T> query(String sql, RowMapper<T> rowMapper) throws DataAccessException {
+	public <T extends @Nullable Object> List<T> query(String sql, RowMapper<T> rowMapper) throws DataAccessException {
 		return query(sql, EmptySqlParameterSource.INSTANCE, rowMapper);
 	}
 
@@ -423,10 +424,13 @@ public class NamedParameterJdbcTemplate implements NamedParameterJdbcOperations 
 		return getJdbcOperations().batchUpdate(psc, new BatchPreparedStatementSetter() {
 			@Override
 			public void setValues(PreparedStatement ps, int i) throws SQLException {
+				if (i == 0) {
+					// batchArgs[0] is already set by pscf.newPreparedStatementCreator()
+					return;
+				}
 				@Nullable Object[] values = NamedParameterUtils.buildValueArray(parsedSql, batchArgs[i], null);
 				pscf.newPreparedStatementSetter(values).setValues(ps);
 			}
-
 			@Override
 			public int getBatchSize() {
 				return batchArgs.length;

@@ -287,10 +287,8 @@ class HttpEntityMethodProcessorMockTests {
 		verify(jsonMessageConverter).write(eq(ex.getBody()), eq(APPLICATION_PROBLEM_JSON), isA(HttpOutputMessage.class));
 
 		assertThat(ex.getBody()).isNotNull()
-				.extracting(ProblemDetail::getInstance).isNotNull()
-				.extracting(URI::toString)
-				.as("Instance was not set to the request path")
-				.isEqualTo(servletRequest.getRequestURI());
+				.extracting(ProblemDetail::getInstance).isNull();
+
 
 		// But if instance is set, it should be respected
 		ex.getBody().setInstance(URI.create("/something/else"));
@@ -315,11 +313,7 @@ class HttpEntityMethodProcessorMockTests {
 		assertThat(webRequest.getNativeResponse(HttpServletResponse.class).getStatus()).isEqualTo(400);
 		verify(jsonMessageConverter).write(eq(problemDetail), eq(APPLICATION_PROBLEM_JSON), isA(HttpOutputMessage.class));
 
-		assertThat(problemDetail)
-				.extracting(ProblemDetail::getInstance).isNotNull()
-				.extracting(URI::toString)
-				.as("Instance was not set to the request path")
-				.isEqualTo(servletRequest.getRequestURI());
+		assertThat(problemDetail.getInstance()).isNull();
 
 
 		// But if instance is set, it should be respected
@@ -823,7 +817,7 @@ class HttpEntityMethodProcessorMockTests {
 		}
 		if (lastModified != -1) {
 			assertThat(servletResponse.getHeaderValues(HttpHeaders.LAST_MODIFIED)).hasSize(1);
-			assertThat((servletResponse.getDateHeader(HttpHeaders.LAST_MODIFIED) / 1000)).isEqualTo((lastModified / 1000));
+			assertThat(servletResponse.getDateHeader(HttpHeaders.LAST_MODIFIED) / 1000).isEqualTo((lastModified / 1000));
 		}
 	}
 

@@ -42,6 +42,16 @@ import org.springframework.resilience.retry.MethodRetryPredicate;
  * <p>Inspired by the <a href="https://github.com/spring-projects/spring-retry">Spring Retry</a>
  * project but redesigned as a minimal core retry feature in the Spring Framework.
  *
+ * <p>When combined with other proxy-based annotations such as
+ * {@code @Transactional}, {@code @Cacheable}, or {@code @Async}, the order of the
+ * resulting advice chain affects retry semantics. By default, {@code @Retryable} advice
+ * is applied outside {@code @Transactional} and {@code @Cacheable} (each retry attempt
+ * starts a fresh transaction or checks the cache), but inside {@code @Async} (all retry
+ * attempts run on the async executor thread). The order relative to {@code @Async} advice
+ * can be customized via {@link EnableResilientMethods#order()} and
+ * {@link org.springframework.scheduling.annotation.EnableAsync#order()}, whereas the
+ * order relative to {@code @Transactional} and {@code @Cacheable} advice is fixed.
+ *
  * @author Juergen Hoeller
  * @author Sam Brannen
  * @since 7.0
@@ -197,6 +207,10 @@ public @interface Retryable {
 	 * and {@code delay + jitter} but never below the base {@link #delay()} or
 	 * above {@link #maxDelay()}. If a multiplier is specified, it is applied
 	 * to the jitter value as well.
+	 * <p>When {@link #delay()} is {@code 0} combined with a positive jitter,
+	 * the delay never grows regardless of any configured multiplier, so the
+	 * full configured jitter is applied directly as a random delay in the range
+	 * from {@code 0} to {@code min(jitter, maxDelay)}.
 	 * <p>The time unit is milliseconds by default but can be overridden via
 	 * {@link #timeUnit}.
 	 * <p>The default is 0 (no jitter).

@@ -17,9 +17,9 @@
 package org.springframework.transaction.interceptor;
 
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -151,7 +151,7 @@ public abstract class TransactionAspectSupport implements BeanFactoryAware, Init
 	 * Mainly intended for code that wants to set the current transaction
 	 * rollback-only but not throw an application exception.
 	 * <p>This exposes the locally declared transaction boundary with its declared name
-	 * and characteristics, as managed by the aspect. Ar runtime, the local boundary may
+	 * and characteristics, as managed by the aspect. At runtime, the local boundary may
 	 * participate in an outer transaction: If you need transaction metadata from such
 	 * an outer transaction (the actual resource transaction) instead, consider using
 	 * {@link org.springframework.transaction.support.TransactionSynchronizationManager}.
@@ -181,10 +181,10 @@ public abstract class TransactionAspectSupport implements BeanFactoryAware, Init
 
 	private @Nullable BeanFactory beanFactory;
 
-	private final ConcurrentMap<Object, TransactionManager> transactionManagerCache =
+	private final Map<Object, TransactionManager> transactionManagerCache =
 			new ConcurrentReferenceHashMap<>(4);
 
-	private final ConcurrentMap<Method, ReactiveTransactionSupport> transactionSupportCache =
+	private final Map<Method, ReactiveTransactionSupport> transactionSupportCache =
 			new ConcurrentReferenceHashMap<>(1024);
 
 

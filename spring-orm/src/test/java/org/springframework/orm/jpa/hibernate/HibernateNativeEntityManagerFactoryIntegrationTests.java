@@ -32,7 +32,10 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.orm.jpa.AbstractContainerEntityManagerFactoryIntegrationTests;
 import org.springframework.orm.jpa.EntityManagerFactoryInfo;
+import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.domain.Person;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,14 +73,14 @@ class HibernateNativeEntityManagerFactoryIntegrationTests extends AbstractContai
 
 	@Test
 	@Override
-	protected void testEntityManagerFactoryImplementsEntityManagerFactoryInfo() {
+	protected void entityManagerFactoryImplementsEntityManagerFactoryInfo() {
 		assertThat(entityManagerFactory).as("Must not have introduced config interface")
 				.isNotInstanceOf(EntityManagerFactoryInfo.class);
 	}
 
 	@Test
 	@SuppressWarnings("unchecked")
-	public void testEntityListener() {
+	void entityListener() {
 		String firstName = "Tony";
 		insertPerson(firstName);
 
@@ -88,7 +91,7 @@ class HibernateNativeEntityManagerFactoryIntegrationTests extends AbstractContai
 	}
 
 	@Test
-	public void testCurrentSession() {
+	void currentSession() {
 		String firstName = "Tony";
 		insertPerson(firstName);
 
@@ -99,7 +102,7 @@ class HibernateNativeEntityManagerFactoryIntegrationTests extends AbstractContai
 	}
 
 	@Test
-	public void testSharedSession() {
+	void sharedSession() {
 		String firstName = "Tony";
 		insertPerson(firstName);
 
@@ -126,7 +129,7 @@ class HibernateNativeEntityManagerFactoryIntegrationTests extends AbstractContai
 	}
 
 	@Test
-	public void testStatelessSession() {
+	void statelessSession() {
 		String firstName = "Tony";
 		insertPerson(firstName);
 
@@ -150,8 +153,63 @@ class HibernateNativeEntityManagerFactoryIntegrationTests extends AbstractContai
 		});
 	}
 
+	@Test
+	void withJpaTransactionManager() {
+		String firstName = "Tony";
+		insertPerson(firstName);
+
+		Query<Person> q = statelessSession.createQuery("select p from Person as p", Person.class);
+		assertThat(q.getResultList()).hasSize(1);
+		assertThat(q.getResultList().get(0).getFirstName()).isEqualTo(firstName);
+
+		endTransaction();
+
+		JpaTransactionManager dstm = new JpaTransactionManager(sessionFactory);
+		new TransactionTemplate(dstm).execute(status -> {
+			insertPerson(firstName);
+			Query<Person> q2 = statelessSession.createQuery("select p from Person as p", Person.class);
+			assertThat(q2.getResultList()).hasSize(1);
+			assertThat(q2.getResultList().get(0).getFirstName()).isEqualTo(firstName);
+			Query<Person> q3 = sharedSession.createQuery("select p from Person as p", Person.class);
+			assertThat(q3.getResultList()).hasSize(1);
+			assertThat(q3.getResultList().get(0).getFirstName()).isEqualTo(firstName);
+			status.setRollbackOnly();
+			return null;
+		});
+	}
+
+	@Test
+	void withPreBoundEntityManager() {
+		String firstName = "Tony";
+		insertPerson(firstName);
+
+		Query<Person> q = statelessSession.createQuery("select p from Person as p", Person.class);
+		assertThat(q.getResultList()).hasSize(1);
+		assertThat(q.getResultList().get(0).getFirstName()).isEqualTo(firstName);
+
+		endTransaction();
+
+		Session session = sessionFactory.openSession();
+		TransactionSynchronizationManager.bindResource(sessionFactory, new EntityManagerHolder(session));
+
+		startNewTransaction();
+
+		insertPerson(firstName);
+		Query<Person> q2 = statelessSession.createQuery("select p from Person as p", Person.class);
+		assertThat(q2.getResultList()).hasSize(1);
+		assertThat(q2.getResultList().get(0).getFirstName()).isEqualTo(firstName);
+		Query<Person> q3 = sharedSession.createQuery("select p from Person as p", Person.class);
+		assertThat(q3.getResultList()).hasSize(1);
+		assertThat(q3.getResultList().get(0).getFirstName()).isEqualTo(firstName);
+
+		endTransaction();
+
+		session.close();
+		TransactionSynchronizationManager.unbindResource(sessionFactory);
+	}
+
 	@Test  // SPR-16956
-	public void testReadOnly() {
+	void readOnly() {
 		assertThat(sessionFactory.getCurrentSession().getHibernateFlushMode()).isSameAs(FlushMode.AUTO);
 		assertThat(sessionFactory.getCurrentSession().isDefaultReadOnly()).isFalse();
 		endTransaction();

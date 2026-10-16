@@ -53,6 +53,7 @@ import org.springframework.util.ReflectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.util.xml.SimpleTransformErrorListener;
 import org.springframework.util.xml.TransformerUtils;
+import org.springframework.web.servlet.resource.ResourceHandlerUtils;
 import org.springframework.web.servlet.view.AbstractUrlBasedView;
 import org.springframework.web.util.WebUtils;
 
@@ -395,7 +396,7 @@ public class XsltView extends AbstractUrlBasedView {
 	 * Configure the supplied {@link HttpServletResponse}.
 	 * <p>The default implementation of this method sets the
 	 * {@link HttpServletResponse#setContentType content type} and
-	 * {@link HttpServletResponse#setCharacterEncoding encoding}
+	 * {@link HttpServletResponse#setCharacterEncoding(String) encoding}
 	 * from the "media-type" and "encoding" output properties
 	 * specified in the {@link Transformer}.
 	 * @param model merged output Map (never {@code null})
@@ -457,12 +458,15 @@ public class XsltView extends AbstractUrlBasedView {
 	protected Source getStylesheetSource() {
 		String url = getUrl();
 		Assert.state(url != null, "'url' not set");
-
 		if (logger.isDebugEnabled()) {
 			logger.debug("Applying stylesheet [" + url + "]");
 		}
+		String location = ResourceHandlerUtils.normalizeInputPath(url);
+		if (ResourceHandlerUtils.shouldIgnoreInputPath(location)) {
+			throw new ApplicationContextException("Invalid XSLT stylesheet location '" + url + "'");
+		}
 		try {
-			Resource resource = obtainApplicationContext().getResource(url);
+			Resource resource = obtainApplicationContext().getResource(location);
 			return new StreamSource(resource.getInputStream(), resource.getURI().toASCIIString());
 		}
 		catch (IOException ex) {

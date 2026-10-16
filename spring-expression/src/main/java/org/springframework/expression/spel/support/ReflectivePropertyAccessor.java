@@ -58,6 +58,19 @@ import org.springframework.util.StringUtils;
  *
  * <p>A property can be referenced through a public getter method (when being read)
  * or a public setter method (when being written), and also through a public field.
+ * A getter method may be a JavaBean-style accessor (for example, {@code getName()}
+ * or {@code isActive()}) or a plain accessor method used to support data classes
+ * such as Java records and Kotlin data classes (for example, {@code name()}).
+ *
+ * <p><strong>WARNING</strong>: This accessor cannot determine, via reflection, whether
+ * a candidate getter method is a side-effect-free read of an underlying property or an
+ * action that happens to return a value &mdash; for example, {@code File.delete()}
+ * matches the same shape as a plain accessor method. See the
+ * <a href="https://docs.spring.io/spring-framework/reference/core/expressions/evaluation.html#expressions-evaluation-context-security"
+ * >Security Considerations</a> and
+ * <a href="https://docs.spring.io/spring-framework/reference/core/expressions/evaluation.html#expressions-evaluation-context-object-design"
+ * >Object Design</a> sections of the Spring Framework reference documentation for
+ * details.
  *
  * @author Andy Clement
  * @author Juergen Hoeller
@@ -136,7 +149,7 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 		if (method != null) {
 			// Treat it like a property...
 			// The readerCache will only contain gettable properties (let's not worry about setters for now).
-			Property property = new Property(type, method, null);
+			Property property = new Property(type, method, null, name);
 			TypeDescriptor typeDescriptor = new TypeDescriptor(property);
 			Method methodToInvoke = ClassUtils.getPubliclyAccessibleMethodIfPossible(method, type);
 			this.readerCache.put(cacheKey, new InvokerPair(methodToInvoke, typeDescriptor));
@@ -180,7 +193,7 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 				if (method != null) {
 					// Treat it like a property...
 					// The readerCache will only contain gettable properties (let's not worry about setters for now).
-					Property property = new Property(type, method, null);
+					Property property = new Property(type, method, null, name);
 					TypeDescriptor typeDescriptor = new TypeDescriptor(property);
 					methodToInvoke = ClassUtils.getPubliclyAccessibleMethodIfPossible(method, type);
 					invoker = new InvokerPair(methodToInvoke, typeDescriptor);
@@ -238,7 +251,7 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 		Method method = findSetterForProperty(name, type, target);
 		if (method != null) {
 			// Treat it like a property
-			Property property = new Property(type, null, method);
+			Property property = new Property(type, null, method, name);
 			TypeDescriptor typeDescriptor = new TypeDescriptor(property);
 			method = ClassUtils.getPubliclyAccessibleMethodIfPossible(method, type);
 			this.writerCache.put(cacheKey, method);
@@ -374,16 +387,22 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 	 * Find a getter method for the specified property.
 	 */
 	protected @Nullable Method findGetterForProperty(String propertyName, Class<?> clazz, boolean mustBeStatic) {
-		Method method = findMethodForProperty(getPropertyMethodSuffixes(propertyName),
+		String[] methodSuffixes = getPropertyMethodSuffixes(propertyName);
+		Method method = findMethodForProperty(methodSuffixes,
 				"get", clazz, mustBeStatic, 0, ANY_TYPES);
 		if (method == null) {
-			method = findMethodForProperty(getPropertyMethodSuffixes(propertyName),
+			method = findMethodForProperty(methodSuffixes,
 					"is", clazz, mustBeStatic, 0, BOOLEAN_TYPES);
 			if (method == null) {
-				// Record-style plain accessor method, for example, name()
+				// Plain accessor method for a data class, for example, a Java
+				// record component accessor or a Kotlin data class accessor
+				// such as name()
 				method = findMethodForProperty(new String[] {propertyName},
 						"", clazz, mustBeStatic, 0, ANY_TYPES);
 			}
+		}
+		if (method != null && method.getReturnType() == void.class) {
+			method = null; // not a valid accessor method
 		}
 		return method;
 	}

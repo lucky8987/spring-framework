@@ -17,6 +17,7 @@
 package org.springframework.mock.web;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -237,7 +238,7 @@ class MockHttpServletRequestTests {
 
 	@Test  // SPR-12677
 	void setContentTypeHeaderWithMoreComplexCharsetSyntax() {
-		String contentType = "test/plain;charset=\"utf-8\";foo=\"charset=bar\";foocharset=bar;foo=bar";
+		String contentType = "test/plain;charset=\"utf-8\";foo=\"charset=bar\";foocharset=bar;foobar=bar";
 		request.addHeader(HttpHeaders.CONTENT_TYPE, contentType);
 		assertThat(request.getContentType()).isEqualTo(contentType);
 		assertThat(request.getHeader(HttpHeaders.CONTENT_TYPE)).isEqualTo(contentType);
@@ -356,7 +357,7 @@ class MockHttpServletRequestTests {
 			Locale.setDefault(newDefaultLocale);
 			// Create the request after changing the default locale.
 			MockHttpServletRequest request = new MockHttpServletRequest();
-			assertThat(newDefaultLocale.equals(request.getLocale())).isFalse();
+			assertThat(newDefaultLocale).isNotEqualTo(request.getLocale());
 			assertThat(request.getLocale()).isEqualTo(Locale.ENGLISH);
 		}
 		finally {
@@ -548,7 +549,7 @@ class MockHttpServletRequestTests {
 	@Test
 	void getRequestURLWithIpv6AddressViaServerNameWithoutPort() throws Exception {
 		request.setServerName("[::ffff:abcd:abcd]");
-		URL url = new java.net.URL(request.getRequestURL().toString());
+		URL url = URI.create(request.getRequestURL().toString()).toURL();
 		assertThat(url).asString().isEqualTo("http://[::ffff:abcd:abcd]");
 	}
 
@@ -556,7 +557,7 @@ class MockHttpServletRequestTests {
 	void getRequestURLWithIpv6AddressViaServerNameWithPort() throws Exception {
 		request.setServerName("[::ffff:abcd:abcd]");
 		request.setServerPort(9999);
-		URL url = new java.net.URL(request.getRequestURL().toString());
+		URL url = URI.create(request.getRequestURL().toString()).toURL();
 		assertThat(url).asString().isEqualTo("http://[::ffff:abcd:abcd]:9999");
 	}
 
@@ -571,14 +572,14 @@ class MockHttpServletRequestTests {
 	@Test
 	void getRequestURLWithIpv6AddressViaHostHeaderWithoutPort() throws Exception {
 		request.addHeader(HOST, "[::ffff:abcd:abcd]");
-		URL url = new java.net.URL(request.getRequestURL().toString());
+		URL url = URI.create(request.getRequestURL().toString()).toURL();
 		assertThat(url).asString().isEqualTo("http://[::ffff:abcd:abcd]");
 	}
 
 	@Test
 	void getRequestURLWithIpv6AddressViaHostHeaderWithPort() throws Exception {
 		request.addHeader(HOST, "[::ffff:abcd:abcd]:9999");
-		URL url = new java.net.URL(request.getRequestURL().toString());
+		URL url = URI.create(request.getRequestURL().toString()).toURL();
 		assertThat(url).asString().isEqualTo("http://[::ffff:abcd:abcd]:9999");
 	}
 
@@ -711,6 +712,33 @@ class MockHttpServletRequestTests {
 		ListenerEvent listenerEvent = testAsyncListener.events.get(0);
 		assertThat(listenerEvent).extracting("name").isEqualTo("onStartAsync");
 		assertThat(listenerEvent.event.getAsyncContext()).isEqualTo(newAsyncContext);
+	}
+
+	@Test
+	void requestedSessionIdValidShouldDefaultToFalse() {
+		assertThat(request.getRequestedSessionId()).isNull();
+		assertThat(request.isRequestedSessionIdValid()).isFalse();
+	}
+
+	@Test
+	void requestedSessionIdValidShouldReturnTrueWhenSessionValid() {
+		MockHttpSession session = new MockHttpSession();
+		request.setSession(session);
+		request.setRequestedSessionId(session.getId());
+		assertThat(request.getRequestedSessionId()).isEqualTo(session.getId());
+		assertThat(request.isRequestedSessionIdValid()).isTrue();
+	}
+
+	@Test
+	void requestedSessionIdValidShouldReturnFalseWhenRotated() {
+		MockHttpSession session = new MockHttpSession();
+		request.setSession(session);
+		request.setRequestedSessionId(session.getId());
+		String previousRequestedId = request.getRequestedSessionId();
+		request.changeSessionId();
+		assertThat(session.getId()).isNotEqualTo(previousRequestedId);
+		assertThat(request.getRequestedSessionId()).isEqualTo(previousRequestedId);
+		assertThat(request.isRequestedSessionIdValid()).isFalse();
 	}
 
 	private void assertEqualEnumerations(Enumeration<?> enum1, Enumeration<?> enum2) {

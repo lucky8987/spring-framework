@@ -32,17 +32,18 @@ import org.jspecify.annotations.Nullable;
  * {@link CollectionUtils#compositeMap(Map, Map, BiFunction, Consumer)}.
  *
  * @author Arjen Poutsma
+ * @author Yanming Zhou
  * @since 6.2
  * @param <K> the type of keys maintained by this map
  * @param <V> the type of mapped values
  */
-final class CompositeMap<K, V> implements Map<K, V> {
+final class CompositeMap<K, V extends @Nullable Object> implements Map<K, V> {
 
-	private final Map<K,V> first;
+	private final Map<K, V> first;
 
-	private final Map<K,V> second;
+	private final Map<K, V> second;
 
-	private final @Nullable BiFunction<K,V,V> putFunction;
+	private final @Nullable BiFunction<K, V, V> putFunction;
 
 	private final @Nullable Consumer<Map<K, V>> putAllFunction;
 
@@ -53,7 +54,7 @@ final class CompositeMap<K, V> implements Map<K, V> {
 
 	CompositeMap(Map<K, V> first, Map<K, V> second,
 			@Nullable BiFunction<K, V, V> putFunction,
-			@Nullable Consumer<Map<K,V>> putAllFunction) {
+			@Nullable Consumer<Map<K, V>> putAllFunction) {
 
 		Assert.notNull(first, "First must not be null");
 		Assert.notNull(second, "Second must not be null");
@@ -76,22 +77,12 @@ final class CompositeMap<K, V> implements Map<K, V> {
 
 	@Override
 	public boolean containsKey(Object key) {
-		if (this.first.containsKey(key)) {
-			return true;
-		}
-		else {
-			return this.second.containsKey(key);
-		}
+		return this.first.containsKey(key) || this.second.containsKey(key);
 	}
 
 	@Override
 	public boolean containsValue(Object value) {
-		if (this.first.containsValue(value)) {
-			return true;
-		}
-		else {
-			return this.second.containsValue(value);
-		}
+		return this.first.containsValue(value) || this.second.containsValue(value);
 	}
 
 	@Override
@@ -106,7 +97,7 @@ final class CompositeMap<K, V> implements Map<K, V> {
 	}
 
 	@Override
-	public @Nullable V put(K key, V value) {
+	public V put(K key, V value) {
 		if (this.putFunction == null) {
 			throw new UnsupportedOperationException();
 		}
@@ -159,6 +150,17 @@ final class CompositeMap<K, V> implements Map<K, V> {
 	@Override
 	public Set<Entry<K, V>> entrySet() {
 		return new CompositeSet<>(this.first.entrySet(), this.second.entrySet());
+	}
+
+	@Override
+	public boolean equals(@Nullable Object other) {
+		return (this == other ||
+				other instanceof Map<?, ?> otherMap && entrySet().equals(otherMap.entrySet()));
+	}
+
+	@Override
+	public int hashCode() {
+		return entrySet().hashCode();
 	}
 
 	@Override

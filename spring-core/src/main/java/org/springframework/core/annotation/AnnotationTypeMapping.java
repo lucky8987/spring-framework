@@ -32,6 +32,7 @@ import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.annotation.AnnotationTypeMapping.MirrorSets.MirrorSet;
+import org.springframework.util.ClassUtils;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 
@@ -129,7 +130,7 @@ final class AnnotationTypeMapping {
 	}
 
 	private Method resolveAliasTarget(Method attribute, AliasFor aliasFor, boolean checkAliasPair) {
-		if (StringUtils.hasText(aliasFor.value()) && StringUtils.hasText(aliasFor.attribute())) {
+		if (StringUtils.hasLength(aliasFor.value()) && StringUtils.hasLength(aliasFor.attribute())) {
 			throw new AnnotationConfigurationException(String.format(
 					"In @AliasFor declared on %s, attribute 'attribute' and its alias 'value' " +
 					"are present with values of '%s' and '%s', but only one is permitted.",
@@ -272,6 +273,17 @@ final class AnnotationTypeMapping {
 		// Uses @AliasFor for attribute overrides in meta-annotations?
 		if (!this.aliasedBy.isEmpty()) {
 			return true;
+		}
+
+		// Does an attribute value need to be resolved from a different annotation
+		// in the meta-annotation hierarchy? This can happen when an attribute is
+		// overridden via @AliasFor further up a multi-level annotation hierarchy
+		// whose root annotation does not redeclare the target attribute itself,
+		// in which case the override cannot be tracked via aliasMappings/aliasedBy.
+		for (int i = 0; i < this.annotationValueSource.length; i++) {
+			if (this.annotationValueSource[i] != null && this.annotationValueSource[i] != this) {
+				return true;
+			}
 		}
 
 		// Has nested annotations or arrays of annotations that are synthesizable?
@@ -649,7 +661,7 @@ final class AnnotationTypeMapping {
 						throw new AnnotationConfigurationException(String.format(
 								"Different @AliasFor mirror values for annotation [%s]%s; attribute '%s' " +
 								"and its alias '%s' are declared with values of [%s] and [%s].",
-								getAnnotationType().getName(), on,
+								ClassUtils.getCanonicalName(getAnnotationType()), on,
 								attributes.get(result).getName(),
 								attribute.getName(),
 								ObjectUtils.nullSafeToString(lastValue),

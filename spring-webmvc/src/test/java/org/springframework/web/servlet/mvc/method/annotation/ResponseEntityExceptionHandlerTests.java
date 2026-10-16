@@ -17,6 +17,7 @@
 package org.springframework.web.servlet.mvc.method.annotation;
 
 import java.beans.PropertyChangeEvent;
+import java.io.IOException;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,11 +41,13 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.http.server.observation.ServerRequestObservationContext;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.MapBindingResult;
 import org.springframework.validation.method.MethodValidationException;
 import org.springframework.validation.method.MethodValidationResult;
 import org.springframework.web.ErrorResponse;
+import org.springframework.web.ErrorResponseException;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -60,6 +63,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.context.support.StaticWebApplicationContext;
+import org.springframework.web.filter.ServerHttpObservationFilter;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -149,6 +153,22 @@ class ResponseEntityExceptionHandlerTests {
 	}
 
 	@Test
+	void queryHttpMediaTypeNotSupported() {
+		this.servletRequest = new MockHttpServletRequest("QUERY", "/");
+		this.request = new ServletWebRequest(this.servletRequest, this.servletResponse);
+
+		ResponseEntity<Object> entity = testException(
+				new HttpMediaTypeNotSupportedException(
+						MediaType.APPLICATION_JSON,
+						List.of(MediaType.APPLICATION_ATOM_XML, MediaType.APPLICATION_XML),
+						HttpMethod.QUERY));
+
+		HttpHeaders headers = entity.getHeaders();
+		assertThat(headers.getFirst(HttpHeaders.ACCEPT)).isEqualTo("application/atom+xml, application/xml");
+		assertThat(headers.getFirst(HttpHeaders.ACCEPT_QUERY)).isEqualTo("application/atom+xml, application/xml");
+	}
+
+	@Test
 	void httpMediaTypeNotAcceptable() {
 		testException(new HttpMediaTypeNotAcceptableException(""));
 	}
@@ -203,7 +223,7 @@ class ResponseEntityExceptionHandlerTests {
 	}
 
 	@Test // gh-30300
-	public void reasonAsDetailShouldBeUpdatedViaMessageSource() {
+	void reasonAsDetailShouldBeUpdatedViaMessageSource() {
 
 		Locale locale = Locale.UK;
 		LocaleContextHolder.setLocale(locale);
@@ -261,7 +281,7 @@ class ResponseEntityExceptionHandlerTests {
 	}
 
 	@Test
-	public void httpMessageNotReadable() {
+	void httpMessageNotReadable() {
 		testException(new HttpMessageNotReadableException("message", new MockHttpInputMessage(new byte[0])));
 	}
 
@@ -318,6 +338,67 @@ class ResponseEntityExceptionHandlerTests {
 		AsyncRequestNotUsableException ex = new AsyncRequestNotUsableException("simulated failure");
 		ResponseEntity<Object> entity = this.exceptionHandler.handleException(ex, this.request);
 		assertThat(entity).isNull();
+	}
+
+	@Test
+	void serverErrorIsRecordedOnObservation() {
+		ServerRequestObservationContext context = observationContext();
+		HttpMessageNotWritableException ex = new HttpMessageNotWritableException("simulated failure");
+
+		ResponseEntity<Object> entity = testException(ex);
+		assertThat(entity.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+		assertThat(context.getError()).isSameAs(ex);
+	}
+
+	@Test
+	void serverErrorResponseIsRecordedOnObservation() {
+		ServerRequestObservationContext context = observationContext();
+		ErrorResponseException ex = new ErrorResponseException(HttpStatus.SERVICE_UNAVAILABLE);
+
+		testException(ex);
+		assertThat(context.getError()).isSameAs(ex);
+	}
+
+	@Test
+	void clientErrorIsNotRecordedOnObservation() {
+		ServerRequestObservationContext context = observationContext();
+
+		testException(new TypeMismatchException("foo", String.class));
+		assertThat(context.getError()).isNull();
+	}
+
+	@Test
+	void clientErrorResponseIsNotRecordedOnObservation() {
+		ServerRequestObservationContext context = observationContext();
+
+		testException(new ErrorResponseException(HttpStatus.CONFLICT));
+		assertThat(context.getError()).isNull();
+	}
+
+	@Test
+	void asyncRequestNotUsableIsNotRecordedOnObservation() throws Exception {
+		ServerRequestObservationContext context = observationContext();
+		AsyncRequestNotUsableException ex = new AsyncRequestNotUsableException("simulated failure");
+
+		assertThat(this.exceptionHandler.handleException(ex, this.request)).isNull();
+		assertThat(context.getError()).isNull();
+	}
+
+	@Test
+	void writeFailureFromLostConnectionIsRecordedOnObservation() {
+		ServerRequestObservationContext context = observationContext();
+		HttpMessageNotWritableException ex =
+				new HttpMessageNotWritableException("simulated failure", new IOException("Broken pipe"));
+
+		// same as DefaultHandlerExceptionResolver, which cannot tell a lost client from a lost remote connection
+		testException(ex);
+		assertThat(context.getError()).isSameAs(ex);
+	}
+
+	@Test
+	void serverErrorWithoutObservation() {
+		testException(new HttpMessageNotWritableException("simulated failure"));
+		assertThat(ServerHttpObservationFilter.findObservationContext(this.servletRequest)).isEmpty();
 	}
 
 	@Test
@@ -398,13 +479,18 @@ class ResponseEntityExceptionHandlerTests {
 			servlet.service(this.servletRequest, this.servletResponse);
 		}
 		catch (ServletException ex) {
-			boolean condition1 = ex.getCause() instanceof IllegalStateException;
-			assertThat(condition1).isTrue();
-			boolean condition = ex.getCause().getCause() instanceof ServletRequestBindingException;
-			assertThat(condition).isTrue();
+			assertThat(ex.getCause()).isInstanceOf(IllegalStateException.class);
+			assertThat(ex.getCause().getCause()).isInstanceOf(ServletRequestBindingException.class);
 		}
 	}
 
+
+	private ServerRequestObservationContext observationContext() {
+		ServerRequestObservationContext context =
+				new ServerRequestObservationContext(this.servletRequest, this.servletResponse);
+		this.servletRequest.setAttribute(ServerHttpObservationFilter.CURRENT_OBSERVATION_CONTEXT_ATTRIBUTE, context);
+		return context;
+	}
 
 	private ResponseEntity<Object> testException(Exception ex) {
 		try {

@@ -56,7 +56,7 @@ import static org.springframework.web.testfixture.method.ResolvableMethod.on;
  * @author Rossen Stoyanchev
  * @author Sebastien Deleuze
  */
-public class FragmentViewResolutionResultHandlerTests {
+class FragmentViewResolutionResultHandlerTests {
 
 	private static final Fragment fragment1 = Fragment.create("fragment1", Map.of("foo", "Foo"));
 
@@ -107,14 +107,29 @@ public class FragmentViewResolutionResultHandlerTests {
 				on(Handler.class).resolveReturnType(Flux.class, Fragment.class),
 				"""
 				event:fragment1
-				data:<p>
-				data:	Hello Foo
-				data:</p>
+				data: <p>
+				data: 	Hello Foo
+				data: </p>
 
 				event:fragment2
-				data:<p>
-				data:	Hello Bar
-				data:</p>
+				data: <p>
+				data: 	Hello Bar
+				data: </p>
+
+				""");
+	}
+
+	@Test
+	void escapeViewFragment() {
+		Fragment fragment = Fragment.create("fragment1", Map.of("foo", "Foo\n and Bar"));
+		testSse(Flux.just(fragment),
+				on(Handler.class).resolveReturnType(Flux.class, Fragment.class),
+				"""
+				event:fragment1
+				data: <p>
+				data: 	Hello Foo
+				data:  and Bar
+				data: </p>
 
 				""");
 	}
@@ -132,15 +147,15 @@ public class FragmentViewResolutionResultHandlerTests {
 				"""
 				id:id1
 				event:event1
-				data:<p>
-				data:	Hello Foo
-				data:</p>
+				data: <p>
+				data: 	Hello Foo
+				data: </p>
 
 				id:id2
 				event:event2
-				data:<p>
-				data:	Hello Bar
-				data:</p>
+				data: <p>
+				data: 	Hello Bar
+				data: </p>
 
 				""");
 	}

@@ -189,6 +189,7 @@ public interface RestClient {
 	 * @return a {@code RestClient} initialized with the {@code restTemplate}'s
 	 * configuration
 	 */
+	@SuppressWarnings("removal")
 	static RestClient create(RestTemplate restTemplate) {
 		return new DefaultRestClientBuilder(restTemplate).build();
 	}
@@ -218,6 +219,7 @@ public interface RestClient {
 	 * @return a {@code RestClient} builder initialized with {@code restTemplate}'s
 	 * configuration
 	 */
+	@SuppressWarnings("removal")
 	static RestClient.Builder builder(RestTemplate restTemplate) {
 		return new DefaultRestClientBuilder(restTemplate);
 	}
@@ -377,19 +379,19 @@ public interface RestClient {
 						ResponseSpec.ErrorHandler errorHandler);
 
 		/**
-		 * Register a default
-		 * {@linkplain ResponseSpec#onStatus(ResponseErrorHandler) status handler}
-		 * to apply to every response. Such default handlers are applied in the
-		 * order in which they are registered, and after any others that are
-		 * registered for a specific response.
-		 * <p>The first status handler who claims that a response has an
-		 * error is invoked. If you want to disable other defaults, consider
-		 * using {@link #defaultStatusHandler(Predicate, ResponseSpec.ErrorHandler)}
-		 * with a predicate that matches all status codes.
-		 * @param errorHandler handler that typically, though not necessarily,
-		 * throws an exception
+		 * Variant of {@link #defaultStatusHandler(Predicate, ResponseSpec.ErrorHandler)}
+		 * that allows use of {@code RestTemplate}'s {@code ResponseErrorHandler}
+		 * mechanism. This is provided mainly to assist {@code RestTemplate}
+		 * users to transition to {@link RestClient}. Internally, the given
+		 * handler is adapted to {@link RestClient.ResponseSpec}, which is the
+		 * preferred mechanism to use.
+		 * @param errorHandler the error handler to configure, internally adapted
+		 * and integrated into the {@link ResponseSpec.ErrorHandler} chain.
 		 * @return this builder
+		 * @deprecated as of 7.1 in favor of {@link #defaultStatusHandler(Predicate, ResponseSpec.ErrorHandler)}
 		 */
+		@Deprecated(since = "7.1", forRemoval = true)
+		@SuppressWarnings("removal")
 		Builder defaultStatusHandler(ResponseErrorHandler errorHandler);
 
 		/**
@@ -454,7 +456,14 @@ public interface RestClient {
 		 * Configure the message converters for the {@code RestClient} to use.
 		 * Multiple consumers are composed together and applied to a single
 		 * {@link HttpMessageConverters.ClientBuilder} instance.
-		 * @param configurer the configurer to apply on an empty {@link HttpMessageConverters.ClientBuilder}.
+		 * <p>As of 7.1, the builder is initialized with
+		 * {@link HttpMessageConverters.ClientBuilder#registerDefaults() default
+		 * converters}, unless converters were provided via the deprecated
+		 * {@link #messageConverters(Iterable)} methods. Use
+		 * {@link HttpMessageConverters.ClientBuilder#disableDefaults()} to only
+		 * use the converters configured explicitly.
+		 * @param configurer the configurer to apply on the
+		 * {@link HttpMessageConverters.ClientBuilder}
 		 * @return this builder
 		 * @since 7.0
 		 */
@@ -1015,7 +1024,10 @@ public interface RestClient {
 		 * {@link RestClientException}.
 		 * @param errorHandler the error handler
 		 * @return this builder
+		 * @deprecated as of 7.1 in favor of {@link #onStatus(Predicate, ErrorHandler)}
 		 */
+		@Deprecated(since = "7.1", forRemoval = true)
+		@SuppressWarnings("removal")
 		ResponseSpec onStatus(ResponseErrorHandler errorHandler);
 
 		/**

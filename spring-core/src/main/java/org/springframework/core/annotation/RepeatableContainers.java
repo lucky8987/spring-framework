@@ -26,6 +26,7 @@ import org.jspecify.annotations.Nullable;
 
 import org.springframework.lang.Contract;
 import org.springframework.util.Assert;
+import org.springframework.util.ClassUtils;
 import org.springframework.util.ConcurrentReferenceHashMap;
 import org.springframework.util.ObjectUtils;
 
@@ -273,9 +274,11 @@ public abstract class RepeatableContainers {
 				Class<?> returnType = method.getReturnType();
 				if (returnType.isArray()) {
 					Class<?> componentType = returnType.componentType();
-					if (Annotation.class.isAssignableFrom(componentType) &&
-							componentType.isAnnotationPresent(Repeatable.class)) {
-						return method;
+					if (Annotation.class.isAssignableFrom(componentType)) {
+						Repeatable repeatable = componentType.getAnnotation(Repeatable.class);
+						if (repeatable != null && repeatable.value() == annotationType) {
+							return method;
+						}
 					}
 				}
 			}
@@ -312,7 +315,7 @@ public abstract class RepeatableContainers {
 				if (returnType.componentType() != repeatable) {
 					throw new AnnotationConfigurationException(
 							"Container type [%s] must declare a 'value' attribute for an array of type [%s]"
-								.formatted(container.getName(), repeatable.getName()));
+								.formatted(ClassUtils.getCanonicalName(container), ClassUtils.getCanonicalName(repeatable)));
 				}
 			}
 			catch (AnnotationConfigurationException ex) {
@@ -321,7 +324,7 @@ public abstract class RepeatableContainers {
 			catch (Throwable ex) {
 				throw new AnnotationConfigurationException(
 						"Invalid declaration of container type [%s] for repeatable annotation [%s]"
-							.formatted(container.getName(), repeatable.getName()), ex);
+							.formatted(ClassUtils.getCanonicalName(container), ClassUtils.getCanonicalName(repeatable)), ex);
 			}
 			this.repeatable = repeatable;
 			this.container = container;
@@ -331,7 +334,7 @@ public abstract class RepeatableContainers {
 		private Class<? extends Annotation> deduceContainer(Class<? extends Annotation> repeatable) {
 			Repeatable annotation = repeatable.getAnnotation(Repeatable.class);
 			Assert.notNull(annotation, () -> "Annotation type must be a repeatable annotation: " +
-						"failed to resolve container type for " + repeatable.getName());
+						"failed to resolve container type for " + ClassUtils.getCanonicalName(repeatable));
 			return annotation.value();
 		}
 

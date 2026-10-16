@@ -64,6 +64,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -199,6 +200,66 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 				.consumeNextWith(stringConsumer("foo"))
 				.expectError(IOException.class)
 				.verify(Duration.ofSeconds(3));
+	}
+
+	@Test  // gh-37143
+	@SuppressWarnings("deprecation") // PooledByteBufAllocator no longer supports tinyCacheSize.
+	void readAsynchronousFileChannelReadThrowsSynchronously() {
+		// Use a dedicated allocator rather than a shared one from
+		// ParameterizedDataBufferAllocatingTest, since this test deliberately
+		// triggers a buffer leak and must not pollute the allocation counters
+		// that other tests rely on.
+		PooledByteBufAllocator allocator = new PooledByteBufAllocator(true, 1, 1, 4096, 4, 0, 0, 0, true);
+		super.bufferFactory = new NettyDataBufferFactory(allocator);
+
+		// On some JDK/Netty combinations (e.g. Windows + JDK 25 + Netty 4.2), the
+		// AsynchronousFileChannel#read(ByteBuffer, long, A, CompletionHandler) call
+		// itself throws instead of invoking CompletionHandler#failed asynchronously.
+		AsynchronousFileChannel channel = mock();
+		willThrow(new UnsupportedOperationException("simulated synchronous failure"))
+				.given(channel).read(any(), anyLong(), any(), any());
+
+		Flux<DataBuffer> result =
+				DataBufferUtils.readAsynchronousFileChannel(() -> channel, super.bufferFactory, 3);
+
+		StepVerifier.create(result)
+				.expectError(UnsupportedOperationException.class)
+				.verify(Duration.ofSeconds(3));
+	}
+
+	@Test  // gh-37143
+	void readAsynchronousFileChannelReadThrowsSynchronouslyFromCompletionThread() throws Exception {
+		super.bufferFactory = new DefaultDataBufferFactory();
+
+		// Real AsynchronousFileChannel implementations invoke the CompletionHandler on a
+		// separate thread, not the calling thread. If a subsequent read (triggered
+		// recursively from within ReadCompletionHandler#completed on that other thread)
+		// throws synchronously, the exception never reaches the original Flux.create
+		// request() call stack, and thus never reaches the FluxSink.
+		var executor = Executors.newSingleThreadExecutor();
+		try {
+			AsynchronousFileChannel channel = mock();
+			willAnswer(invocation -> {
+				ByteBuffer byteBuffer = invocation.getArgument(0);
+				byteBuffer.put("foo".getBytes(StandardCharsets.UTF_8));
+				Object attachment = invocation.getArgument(2);
+				CompletionHandler<Integer, Object> completionHandler = invocation.getArgument(3);
+				executor.submit(() -> completionHandler.completed(3, attachment));
+				return null;
+			}).willThrow(new UnsupportedOperationException("simulated synchronous failure"))
+			.given(channel).read(any(), anyLong(), any(), any());
+
+			Flux<DataBuffer> result =
+					DataBufferUtils.readAsynchronousFileChannel(() -> channel, super.bufferFactory, 3);
+
+			StepVerifier.create(result)
+					.consumeNextWith(stringConsumer("foo"))
+					.expectError(UnsupportedOperationException.class)
+					.verify(Duration.ofSeconds(3));
+		}
+		finally {
+			executor.shutdown();
+		}
 	}
 
 	@ParameterizedDataBufferAllocatingTest
@@ -339,6 +400,27 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 	}
 
 	@ParameterizedDataBufferAllocatingTest
+	void writeWritableByteChannelWithJoinedBuffer(DataBufferFactory bufferFactory) throws Exception {
+		super.bufferFactory = bufferFactory;
+
+		DataBuffer foo = stringBuffer("foo");
+		DataBuffer bar = stringBuffer("bar");
+		DataBuffer joined = bufferFactory.join(List.of(foo, bar));
+
+		WritableByteChannel channel = Files.newByteChannel(tempFile, StandardOpenOption.WRITE);
+
+		Flux<DataBuffer> writeResult = DataBufferUtils.write(Flux.just(joined), channel);
+		StepVerifier.create(writeResult)
+				.consumeNextWith(stringConsumer("foobar"))
+				.verifyComplete();
+
+		String result = String.join("", Files.readAllLines(tempFile));
+
+		assertThat(result).isEqualTo("foobar");
+		channel.close();
+	}
+
+	@ParameterizedDataBufferAllocatingTest
 	void writeWritableByteChannelErrorInFlux(DataBufferFactory bufferFactory) throws Exception {
 		super.bufferFactory = bufferFactory;
 
@@ -446,6 +528,27 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 	}
 
 	@ParameterizedDataBufferAllocatingTest
+	void writeAsynchronousFileChannelWithJoinedBuffer(DataBufferFactory bufferFactory) throws Exception {
+		super.bufferFactory = bufferFactory;
+
+		DataBuffer foo = stringBuffer("foo");
+		DataBuffer bar = stringBuffer("bar");
+		DataBuffer joined = bufferFactory.join(List.of(foo, bar));
+
+		AsynchronousFileChannel channel = AsynchronousFileChannel.open(tempFile, StandardOpenOption.WRITE);
+
+		Flux<DataBuffer> writeResult = DataBufferUtils.write(Flux.just(joined), channel);
+		StepVerifier.create(writeResult)
+				.consumeNextWith(stringConsumer("foobar"))
+				.verifyComplete();
+
+		String result = String.join("", Files.readAllLines(tempFile));
+
+		assertThat(result).isEqualTo("foobar");
+		channel.close();
+	}
+
+	@ParameterizedDataBufferAllocatingTest
 	void writeAsynchronousFileChannelErrorInFlux(DataBufferFactory bufferFactory) throws Exception {
 		super.bufferFactory = bufferFactory;
 
@@ -506,6 +609,65 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 				.verify();
 
 		channel.close();
+	}
+
+	@Test  // gh-37145
+	void writeAsynchronousFileChannelWriteThrowsErrorSynchronously() {
+		super.bufferFactory = new DefaultDataBufferFactory();
+
+		DataBuffer foo = stringBuffer("foo");
+		Flux<DataBuffer> flux = Flux.just(foo);
+
+		// Since AssertionError is not a JVM-fatal exception, Exceptions.throwIfFatal()
+		// lets it through to the failure handler.
+		AsynchronousFileChannel channel = mock();
+		willThrow(new AssertionError("simulated synchronous failure"))
+				.given(channel).write(any(), anyLong(), any(), any());
+
+		Flux<DataBuffer> writeResult = DataBufferUtils.write(flux, channel);
+
+		StepVerifier.create(writeResult)
+				.consumeNextWith(stringConsumer("foo"))
+				.expectError(AssertionError.class)
+				.verify(Duration.ofSeconds(3));
+	}
+
+	@Test  // gh-37145
+	void writeAsynchronousFileChannelWriteThrowsErrorSynchronouslyFromCompletionThread() {
+		super.bufferFactory = new DefaultDataBufferFactory();
+
+		DataBuffer foo = stringBuffer("foo");
+		Flux<DataBuffer> flux = Flux.just(foo);
+
+		// Real AsynchronousFileChannel implementations invoke the CompletionHandler on a
+		// separate thread, not the calling thread. If the OS only writes part of the
+		// buffer, WriteCompletionHandler#completed recursively calls channel.write(...)
+		// again for the remainder - on that other thread, not the original caller.
+		var executor = Executors.newSingleThreadExecutor();
+		try {
+			AsynchronousFileChannel channel = mock();
+			willAnswer(invocation -> {
+				ByteBuffer buffer = invocation.getArgument(0);
+				Object attachment = invocation.getArgument(2);
+				CompletionHandler<Integer, Object> completionHandler = invocation.getArgument(3);
+				// Simulate a partial write (1 of 3 bytes) so that completed() has to
+				// recursively write the remainder.
+				buffer.position(buffer.position() + 1);
+				executor.submit(() -> completionHandler.completed(1, attachment));
+				return null;
+			}).willThrow(new AssertionError("simulated synchronous failure"))
+			.given(channel).write(any(), anyLong(), any(), any());
+
+			Flux<DataBuffer> writeResult = DataBufferUtils.write(flux, channel);
+
+			StepVerifier.create(writeResult)
+					.consumeNextWith(stringConsumer("foo"))
+					.expectError(AssertionError.class)
+					.verify(Duration.ofSeconds(3));
+		}
+		finally {
+			executor.shutdown();
+		}
 	}
 
 	@ParameterizedDataBufferAllocatingTest
@@ -1231,7 +1393,7 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 		DataBuffer bar = stringBuffer("bar");
 
 		byte[] delims = "ooba".getBytes(StandardCharsets.UTF_8);
-		DataBufferUtils.Matcher matcher = DataBufferUtils.matcher(delims);
+		DataBufferMatcher matcher = DataBufferUtils.matcher(delims);
 		int result = matcher.match(foo);
 		assertThat(result).isEqualTo(-1);
 		result = matcher.match(bar);
@@ -1248,7 +1410,7 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 		DataBuffer foo = stringBuffer("foooobar");
 
 		byte[] delims = "oo".getBytes(StandardCharsets.UTF_8);
-		DataBufferUtils.Matcher matcher = DataBufferUtils.matcher(delims);
+		DataBufferMatcher matcher = DataBufferUtils.matcher(delims);
 		int endIndex = matcher.match(foo);
 		assertThat(endIndex).isEqualTo(2);
 		foo.readPosition(endIndex + 1);
@@ -1268,7 +1430,7 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 		DataBuffer foo = stringBuffer("foooobar");
 
 		byte[] delims = "oo".getBytes(StandardCharsets.UTF_8);
-		DataBufferUtils.Matcher matcher = DataBufferUtils.matcher(delims);
+		DataBufferMatcher matcher = DataBufferUtils.matcher(delims);
 		int endIndex = matcher.match(foo);
 		assertThat(endIndex).isEqualTo(2);
 		foo.readPosition(endIndex + 1);
@@ -1279,6 +1441,48 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 		assertThat(endIndex).isEqualTo(-1);
 
 		release(foo);
+	}
+
+	@ParameterizedDataBufferAllocatingTest
+	void matcherDoesNotMatchAcrossNonContiguousDelimiterBytes(DataBufferFactory bufferFactory) {
+		super.bufferFactory = bufferFactory;
+
+		DataBuffer buffer = stringBuffer("a\rXY\nb");
+
+		byte[] delims = "\r\n".getBytes(StandardCharsets.UTF_8);
+		DataBufferMatcher matcher = DataBufferUtils.matcher(delims);
+		int result = matcher.match(buffer);
+		assertThat(result).isEqualTo(-1);
+
+		release(buffer);
+	}
+
+	@ParameterizedDataBufferAllocatingTest
+	void matcherMatchesContiguousTwoByteDelimiter(DataBufferFactory bufferFactory) {
+		super.bufferFactory = bufferFactory;
+
+		DataBuffer buffer = stringBuffer("a\r\nb");
+
+		byte[] delims = "\r\n".getBytes(StandardCharsets.UTF_8);
+		DataBufferMatcher matcher = DataBufferUtils.matcher(delims);
+		int result = matcher.match(buffer);
+		assertThat(result).isEqualTo(2);
+
+		release(buffer);
+	}
+
+	@ParameterizedDataBufferAllocatingTest
+	void matcherDoesNotMatchAfterRepeatedFirstDelimiterByte(DataBufferFactory bufferFactory) {
+		super.bufferFactory = bufferFactory;
+
+		DataBuffer buffer = stringBuffer("a\r\rX\nb");
+
+		byte[] delims = "\r\n".getBytes(StandardCharsets.UTF_8);
+		DataBufferMatcher matcher = DataBufferUtils.matcher(delims);
+		int result = matcher.match(buffer);
+		assertThat(result).isEqualTo(-1);
+
+		release(buffer);
 	}
 
 	@ParameterizedDataBufferAllocatingTest

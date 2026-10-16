@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.within;
 class MediaTypeTests {
 
 	@Test
-	void testToString() {
+	void toStringOutput() {
 		MediaType mediaType = new MediaType("text", "plain", 0.7);
 		String result = mediaType.toString();
 		assertThat(result).as("Invalid toString() returned").isEqualTo("text/plain;q=0.7");
@@ -136,6 +136,12 @@ class MediaTypeTests {
 	}
 
 	@Test
+	void parseMediaTypeIllegalQualityFactorWithUpperCaseParameterName() {
+		assertThatExceptionOfType(InvalidMediaTypeException.class).isThrownBy(() ->
+				MediaType.parseMediaType("audio/basic;Q=1.1"));
+	}
+
+	@Test
 	void parseMediaTypeIllegalCharset() {
 		assertThatExceptionOfType(InvalidMediaTypeException.class).isThrownBy(() ->
 				MediaType.parseMediaType("text/html; charset=foo-bar"));
@@ -163,7 +169,7 @@ class MediaTypeTests {
 	}
 
 	@Test  // gh-23241
-	public void parseMediaTypesWithTrailingComma() {
+	void parseMediaTypesWithTrailingComma() {
 		List<MediaType> mediaTypes = MediaType.parseMediaTypes("text/plain, text/html, ");
 		assertThat(mediaTypes).as("No media types returned").isNotNull();
 		assertThat(mediaTypes).as("Incorrect number of media types").hasSize(2);
@@ -279,7 +285,7 @@ class MediaTypeTests {
 	}
 
 	@Test
-	void testWithConversionService() {
+	void withConversionService() {
 		ConversionService conversionService = new DefaultConversionService();
 		assertThat(conversionService.canConvert(String.class, MediaType.class)).isTrue();
 		MediaType mediaType = MediaType.parseMediaType("application/xml");
@@ -291,6 +297,18 @@ class MediaTypeTests {
 		assertThat(MediaType.TEXT_PLAIN.isConcrete()).as("text/plain not concrete").isTrue();
 		assertThat(MediaType.ALL.isConcrete()).as("*/* concrete").isFalse();
 		assertThat(new MediaType("text", "*").isConcrete()).as("text/* concrete").isFalse();
+	}
+
+	@Test
+	void removeQualityValue() {
+		assertThat(MediaType.parseMediaType("audio/basic;q=0.8").removeQualityValue())
+				.isEqualTo(MediaType.parseMediaType("audio/basic"));
+	}
+
+	@Test
+	void removeQualityValueWithUpperCaseParameterName() {
+		assertThat(MediaType.parseMediaType("audio/basic;Q=0.8").removeQualityValue())
+				.isEqualTo(MediaType.parseMediaType("audio/basic"));
 	}
 
 	@Test  // gh-26127

@@ -114,7 +114,6 @@ public class MvcAnnotationPredicates {
 	}
 
 
-
 	public static class ModelAttributePredicate implements Predicate<MethodParameter> {
 
 		private String name;

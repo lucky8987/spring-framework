@@ -62,6 +62,7 @@ import org.springframework.web.testfixture.servlet.MockHttpServletRequest;
 import org.springframework.web.testfixture.servlet.MockHttpServletResponse;
 import org.springframework.web.util.ServletRequestPathUtils;
 import org.springframework.web.util.UrlPathHelper;
+import org.springframework.web.util.pattern.PathPattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -193,9 +194,11 @@ class RequestMappingInfoHandlerMappingTests {
 	void getHandlerHttpOptions(TestRequestMappingInfoHandlerMapping mapping) throws Exception {
 		testHttpOptions(mapping, "/foo", "GET,HEAD,OPTIONS", null);
 		testHttpOptions(mapping, "/person/1", "PUT,OPTIONS", null);
-		testHttpOptions(mapping, "/persons", "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS", null);
+		testHttpOptions(mapping, "/persons", "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS,QUERY", null);
 		testHttpOptions(mapping, "/something", "PUT,POST", null);
 		testHttpOptions(mapping, "/qux", "PATCH,GET,HEAD,OPTIONS", new MediaType("foo", "bar"));
+		testHttpOptions(mapping, "/quid", "QUERY,HEAD,OPTIONS", null);
+		testHttpHeadQuery(mapping, "/quid", "QUERY,HEAD,OPTIONS", MediaType.APPLICATION_JSON);
 	}
 
 	@PathPatternsParameterizedTest
@@ -313,6 +316,22 @@ class RequestMappingInfoHandlerMappingTests {
 		mapping.handleMatch(info, "/1/2", request);
 
 		assertThat(request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE)).isEqualTo("/{path1}/2");
+		assertThat(request.getAttribute(HandlerMapping.BEST_MATCHING_PATH_PATTERN_ATTRIBUTE)).isNull();
+	}
+
+	@Test
+	void handleMatchBestMatchingPathPatternAttribute() {
+		TestRequestMappingInfoHandlerMapping mapping = new TestRequestMappingInfoHandlerMapping();
+		RequestMappingInfo info = mapping.createInfo("/{path1}/2", "/**");
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/1/2");
+		ServletRequestPathUtils.parseAndCache(request);
+
+		mapping.handleMatch(info, "/1/2", request);
+
+		assertThat(request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE)).isEqualTo("/{path1}/2");
+		assertThat(request.getAttribute(HandlerMapping.BEST_MATCHING_PATH_PATTERN_ATTRIBUTE))
+				.isInstanceOfSatisfying(PathPattern.class,
+						pattern -> assertThat(pattern.getPatternString()).isEqualTo("/{path1}/2"));
 	}
 
 	@SuppressWarnings("removal")
@@ -477,6 +496,29 @@ class RequestMappingInfoHandlerMappingTests {
 		}
 	}
 
+	private void testHttpHeadQuery(TestRequestMappingInfoHandlerMapping mapping, String requestURI,
+			String allowHeader, @Nullable MediaType acceptQuery) throws Exception {
+
+		MockHttpServletRequest request = new MockHttpServletRequest("HEAD", requestURI);
+		HandlerMethod handlerMethod = getHandler(mapping, request);
+
+		ServletWebRequest webRequest = new ServletWebRequest(request);
+		ModelAndViewContainer mavContainer = new ModelAndViewContainer();
+		Object result = new InvocableHandlerMethod(handlerMethod).invokeForRequest(webRequest, mavContainer);
+
+		assertThat(result).isNotNull();
+		assertThat(result.getClass()).isEqualTo(HttpHeaders.class);
+		HttpHeaders headers = (HttpHeaders) result;
+		Set<HttpMethod> allowedMethods = Arrays.stream(allowHeader.split(","))
+				.map(HttpMethod::valueOf)
+				.collect(Collectors.toSet());
+		assertThat(headers.getAllow()).hasSameElementsAs(allowedMethods);
+
+		if (acceptQuery != null) {
+			assertThat(headers.getAcceptQuery()).containsExactly(acceptQuery);
+		}
+	}
+
 	private void testHttpMediaTypeNotAcceptableException(TestRequestMappingInfoHandlerMapping mapping, String url) {
 		MockHttpServletRequest request = new MockHttpServletRequest("GET", url);
 		request.addHeader("Accept", "application/json");
@@ -571,6 +613,11 @@ class RequestMappingInfoHandlerMappingTests {
 
 		@RequestMapping(value = "/qux", method = RequestMethod.PATCH, consumes = "foo/bar")
 		public void patchBaz(String value) {
+		}
+
+		@RequestMapping(value = "/quid", method = RequestMethod.QUERY, consumes = "application/json", produces = "application/json")
+		public String query(@RequestBody String body) {
+			return "{}";
 		}
 	}
 

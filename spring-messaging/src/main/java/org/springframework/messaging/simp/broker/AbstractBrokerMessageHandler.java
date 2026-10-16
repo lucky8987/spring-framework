@@ -40,7 +40,7 @@ import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 
 /**
- * Abstract base class for a {@link MessageHandler} that broker messages to
+ * Abstract base class for a {@link MessageHandler} that brokers messages to
  * registered subscribers.
  *
  * @author Rossen Stoyanchev
@@ -334,7 +334,7 @@ public abstract class AbstractBrokerMessageHandler
 		boolean shouldPublish = this.brokerAvailable.compareAndSet(false, true);
 		if (this.eventPublisher != null && shouldPublish) {
 			if (logger.isInfoEnabled()) {
-				logger.info(this.availableEvent);
+				logger.info(this.availableEvent.toString());
 			}
 			this.eventPublisher.publishEvent(this.availableEvent);
 		}
@@ -344,7 +344,7 @@ public abstract class AbstractBrokerMessageHandler
 		boolean shouldPublish = this.brokerAvailable.compareAndSet(true, false);
 		if (this.eventPublisher != null && shouldPublish) {
 			if (logger.isInfoEnabled()) {
-				logger.info(this.notAvailableEvent);
+				logger.info(this.notAvailableEvent.toString());
 			}
 			this.eventPublisher.publishEvent(this.notAvailableEvent);
 		}

@@ -29,7 +29,9 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
 import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -124,6 +126,12 @@ public class HttpHeaders implements Serializable {
 	 * @see <a href="https://tools.ietf.org/html/rfc5789#section-3.1">Section 3.1 of RFC 5789</a>
 	 */
 	public static final String ACCEPT_PATCH = "Accept-Patch";
+	/**
+	 * The HTTP {@code Accept-Query} header field name.
+	 * @since 7.1
+	 * @see <a href="https://www.rfc-editor.org/rfc/rfc10008.html#section-3">Section 3 of RFC 10008</a>
+	 */
+	public static final String ACCEPT_QUERY = "Accept-Query";
 	/**
 	 * The HTTP {@code Accept-Ranges} header field name.
 	 * @see <a href="https://tools.ietf.org/html/rfc7233#section-2.3">Section 5.3.5 of RFC 7233</a>
@@ -429,7 +437,9 @@ public class HttpHeaders implements Serializable {
 	private static final DateTimeFormatter[] DATE_PARSERS = new DateTimeFormatter[] {
 			DateTimeFormatter.RFC_1123_DATE_TIME,
 			DateTimeFormatter.ofPattern("EEEE, dd-MMM-yy HH:mm:ss zzz", Locale.US),
-			DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss yyyy", Locale.US).withZone(GMT)
+			DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss yyyy", Locale.US).withZone(GMT),
+			// RFC 9651: Structured Field Values for HTTP
+			new DateTimeFormatterBuilder().appendLiteral('@').appendValue(ChronoField.INSTANT_SECONDS).toFormatter(Locale.US).withZone(GMT)
 	};
 
 
@@ -454,7 +464,7 @@ public class HttpHeaders implements Serializable {
 	 */
 	public HttpHeaders(MultiValueMap<String, String> headers) {
 		Assert.notNull(headers, "MultiValueMap must not be null");
-		this.headers = headers;
+		this.headers = (headers instanceof HttpHeaders httpHeaders ? unwrap(httpHeaders) : headers);
 	}
 
 	/**
@@ -491,7 +501,12 @@ public class HttpHeaders implements Serializable {
 	 */
 	public static HttpHeaders copyOf(MultiValueMap<String, String> headers) {
 		HttpHeaders httpHeadersCopy = new HttpHeaders();
-		headers.forEach((key, values) -> httpHeadersCopy.put(key, new ArrayList<>(values)));
+		for (String name : headers.keySet()) {
+			List<String> values = headers.get(name);
+			if (values != null) {
+				httpHeadersCopy.put(name, new ArrayList<>(values));
+			}
+		}
 		return httpHeadersCopy;
 	}
 
@@ -642,6 +657,27 @@ public class HttpHeaders implements Serializable {
 	public List<MediaType> getAcceptPatch() {
 		return MediaType.parseMediaTypes(get(ACCEPT_PATCH));
 	}
+
+	/**
+	 * Set the list of acceptable {@linkplain MediaType media types} for
+	 * {@code QUERY} methods, as specified by the {@code Accept-Query} header.
+	 * @since 7.1
+	 */
+	public void setAcceptQuery(List<MediaType> mediaTypes) {
+		set(ACCEPT_QUERY, MediaType.toString(mediaTypes));
+	}
+
+	/**
+	 * Return the list of acceptable {@linkplain MediaType media types} for
+	 * {@code QUERY} methods, as specified by the {@code Accept-Query} header.
+	 * <p>Returns an empty list when the acceptable media types are unspecified.
+	 * @since 7.1
+	 */
+	public List<MediaType> getAcceptQuery() {
+		return MediaType.parseMediaTypes(get(ACCEPT_QUERY));
+	}
+
+
 
 	/**
 	 * Set the (new) value of the {@code Access-Control-Allow-Credentials} response header.
@@ -1589,7 +1625,7 @@ public class HttpHeaders implements Serializable {
 			// No header value sent at all
 			return null;
 		}
-		if (headerValue.length() >= 3) {
+		if (headerValue.length() >= 3 || headerValue.startsWith("@")) {
 			// Short "0" or "-1" like values are never valid HTTP date headers...
 			// Let's only bother with DateTimeFormatter parsing for long enough values.
 
@@ -1984,7 +2020,9 @@ public class HttpHeaders implements Serializable {
 	 * @see #put(String, List)
 	 */
 	public void putAll(Map<? extends String, ? extends List<String>> headers) {
-		headers.forEach(this::put);
+		for (String name : headers.keySet()) {
+			put(name, headers.get(name));
+		}
 	}
 
 	/**
@@ -2108,6 +2146,11 @@ public class HttpHeaders implements Serializable {
 	 * @since 5.1.4
 	 */
 	public static String formatHeaders(MultiValueMap<String, String> headers) {
+		return doFormatHeaders(headers instanceof HttpHeaders httpHeaders ?
+				unwrap(httpHeaders) : headers);
+	}
+
+	private static String doFormatHeaders(MultiValueMap<String, String> headers) {
 		Set<String> headerNames = new CaseInsensitiveHeaderNameSet(headers);
 		String suffix = "]";
 		if (headerNames.size() != headers.size()) {
@@ -2181,6 +2224,7 @@ public class HttpHeaders implements Serializable {
 		private static final Object VALUE = new Object();
 
 		private final MultiValueMap<String, String> headers;
+
 		private final Map<String, Object> deduplicatedNames;
 
 		public CaseInsensitiveHeaderNameSet(MultiValueMap<String, String> headers) {
@@ -2222,12 +2266,14 @@ public class HttpHeaders implements Serializable {
 		}
 	}
 
+
 	private static class HeaderNamesIterator implements Iterator<String> {
 
-		private @Nullable String currentName;
-
 		private final MultiValueMap<String, String> headers;
+
 		private final Iterator<String> namesIterator;
+
+		private @Nullable String currentName;
 
 		public HeaderNamesIterator(MultiValueMap<String, String> headers, Map<String, Object> caseInsensitiveNames) {
 			this.headers = headers;
@@ -2262,6 +2308,7 @@ public class HttpHeaders implements Serializable {
 	private static final class CaseInsensitiveEntrySet extends AbstractSet<Entry<String, List<String>>> {
 
 		private final MultiValueMap<String, String> headers;
+
 		private final CaseInsensitiveHeaderNameSet nameSet;
 
 		public CaseInsensitiveEntrySet(MultiValueMap<String, String> headers) {
@@ -2278,6 +2325,7 @@ public class HttpHeaders implements Serializable {
 		public int size() {
 			return this.nameSet.size();
 		}
+
 
 		private final class CaseInsensitiveIterator implements Iterator<Entry<String, List<String>>> {
 
@@ -2303,6 +2351,7 @@ public class HttpHeaders implements Serializable {
 			}
 		}
 
+
 		private final class CaseInsensitiveEntry implements Entry<String, List<String>> {
 
 			private final String key;
@@ -2323,26 +2372,21 @@ public class HttpHeaders implements Serializable {
 
 			@Override
 			public List<String> setValue(List<String> value) {
-				List<String> previousValues = Objects.requireNonNull(
-						CaseInsensitiveEntrySet.this.headers.get(this.key));
+				List<String> previous = Objects.requireNonNull(CaseInsensitiveEntrySet.this.headers.get(this.key));
 				CaseInsensitiveEntrySet.this.headers.put(this.key, value);
-				return previousValues;
+				return previous;
 			}
 
 			@Override
-			public boolean equals(@Nullable Object o) {
-				if (this == o) {
-					return true;
-				}
-				if (!(o instanceof Map.Entry<?,?> that)) {
-					return false;
-				}
-				return ObjectUtils.nullSafeEquals(getKey(), that.getKey()) && ObjectUtils.nullSafeEquals(getValue(), that.getValue());
+			public boolean equals(@Nullable Object other) {
+				return (this == other || (other instanceof Map.Entry<?, ?> that &&
+						ObjectUtils.nullSafeEquals(getKey(), that.getKey()) &&
+						ObjectUtils.nullSafeEquals(getValue(), that.getValue())));
 			}
 
 			@Override
 			public int hashCode() {
-				return ObjectUtils.nullSafeHash(getKey(), getValue());
+				return this.key.hashCode();  // avoid value lookup for hashCode
 			}
 		}
 	}

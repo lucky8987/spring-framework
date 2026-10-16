@@ -35,6 +35,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -265,7 +267,7 @@ class ReactiveTypeHandlerTests {
 		sink.tryEmitNext("baz");
 		sink.tryEmitComplete();
 
-		assertThat(emitterHandler.getValuesAsText()).isEqualTo("data:foo\n\ndata:bar\n\ndata:baz\n\n");
+		assertThat(emitterHandler.getValuesAsText()).isEqualTo("data: foo\n\ndata: bar\n\ndata: baz\n\n");
 	}
 
 	@Test
@@ -284,13 +286,14 @@ class ReactiveTypeHandlerTests {
 		sink.tryEmitNext(ServerSentEvent.builder("baz").id("3").build());
 		sink.tryEmitComplete();
 
-		assertThat(emitterHandler.getValuesAsText()).isEqualTo("id:1\ndata:foo\n\nid:2\ndata:bar\n\nid:3\ndata:baz\n\n");
+		assertThat(emitterHandler.getValuesAsText()).isEqualTo("id:1\ndata: foo\n\nid:2\ndata: bar\n\nid:3\ndata: baz\n\n");
 	}
 
-	@Test
-	void writeStreamJson() throws Exception {
+	@ParameterizedTest
+	@ValueSource(strings = {"application/jsonl", "application/x-ndjson"})
+	void writeStreamJson(String mediaType) throws Exception {
 
-		this.servletRequest.addHeader("Accept", "application/x-ndjson");
+		this.servletRequest.addHeader("Accept", mediaType);
 
 		Sinks.Many<Bar> sink = Sinks.many().unicast().onBackpressureBuffer();
 		ResponseBodyEmitter emitter = handleValue(sink.asFlux(), Flux.class, forClass(Bar.class));
@@ -308,7 +311,7 @@ class ReactiveTypeHandlerTests {
 		sink.tryEmitNext(bar2);
 		sink.tryEmitComplete();
 
-		assertThat(message.getHeaders().getContentType()).hasToString("application/x-ndjson");
+		assertThat(message.getHeaders().getContentType()).hasToString(mediaType);
 		assertThat(emitterHandler.getValues()).isEqualTo(Arrays.asList(bar1, "\n", bar2, "\n"));
 	}
 
@@ -450,7 +453,7 @@ class ReactiveTypeHandlerTests {
 
 			sink.tryEmitComplete();
 
-			assertThat(emitterHandler.getValuesAsText()).isEqualTo("data:emitted value\n\n");
+			assertThat(emitterHandler.getValuesAsText()).isEqualTo("data: emitted value\n\n");
 			assertThat(emitterHandler.getSavedRequest()).isSameAs(this.servletRequest);
 		}
 		finally {

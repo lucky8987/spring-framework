@@ -62,7 +62,8 @@ public class ReactorClientHttpConnector implements ClientHttpConnector, SmartLif
 
 	private static final Log logger = LogFactory.getLog(ReactorClientHttpConnector.class);
 
-	private static final Function<HttpClient, HttpClient> defaultInitializer = client -> client.compress(true);
+	private static final Function<HttpClient, HttpClient> defaultInitializer =
+			client -> client.compress(true).proxyWithSystemProperties();
 
 
 	private final @Nullable ReactorResourceFactory resourceFactory;
@@ -78,7 +79,7 @@ public class ReactorClientHttpConnector implements ClientHttpConnector, SmartLif
 
 	/**
 	 * Default constructor. Initializes {@link HttpClient} via:
-	 * <pre class="code">HttpClient.create().compress(true)</pre>
+	 * <pre class="code">HttpClient.create().compress(true).proxyWithSystemProperties()</pre>
 	 */
 	public ReactorClientHttpConnector() {
 		this.httpClient = defaultInitializer.apply(HttpClient.create());
@@ -168,7 +169,7 @@ public class ReactorClientHttpConnector implements ClientHttpConnector, SmartLif
 				.responseConnection((response, connection) -> {
 					ReactorClientHttpResponse clientResponse = new ReactorClientHttpResponse(response, connection);
 					responseRef.set(clientResponse);
-					clearChannelAttribute(connection);
+					registerAttributeCallback(connection);
 					return Mono.just((ClientHttpResponse) clientResponse);
 				})
 				.next()
@@ -198,12 +199,13 @@ public class ReactorClientHttpConnector implements ClientHttpConnector, SmartLif
 		return new ReactorClientHttpRequest(method, uri, request, nettyOutbound);
 	}
 
-	private static void clearChannelAttribute(Connection connection) {
-		connection.onTerminate().subscribe(
-				aVoid -> {}, ex -> clearAttribute(connection), () -> clearAttribute(connection));
+	private static void registerAttributeCallback(Connection connection) {
+		connection.onTerminate().subscribe(aVoid -> {},
+				ex -> clearAttribute(connection), () -> clearAttribute(connection));
 	}
 
 	private static void clearAttribute(Connection connection) {
+		// Deprecation note on remove method: consider using set(Object) (with value of null)
 		connection.channel().attr(ATTRIBUTES_KEY).set(null);
 	}
 

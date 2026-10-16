@@ -239,8 +239,8 @@ public class ThreadPoolTaskExecutor extends ExecutorConfigurationSupport
 	 * @since 6.1.4
 	 * @see #initiateShutdown()
 	 */
-	public void setStrictEarlyShutdown(boolean defaultEarlyShutdown) {
-		this.strictEarlyShutdown = defaultEarlyShutdown;
+	public void setStrictEarlyShutdown(boolean strictEarlyShutdown) {
+		this.strictEarlyShutdown = strictEarlyShutdown;
 	}
 
 	/**
@@ -401,7 +401,7 @@ public class ThreadPoolTaskExecutor extends ExecutorConfigurationSupport
 	}
 
 	@Override
-	public <T> Future<T> submit(Callable<T> task) {
+	public <T extends @Nullable Object> Future<T> submit(Callable<T> task) {
 		ExecutorService executor = getThreadPoolExecutor();
 		try {
 			return executor.submit(task);

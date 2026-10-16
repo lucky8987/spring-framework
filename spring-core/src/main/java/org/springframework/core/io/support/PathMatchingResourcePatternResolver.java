@@ -611,6 +611,7 @@ public class PathMatchingResourcePatternResolver implements ResourcePatternResol
 		}
 	}
 
+	@SuppressWarnings("deprecation")  // for deprecated URL constructor on JDK 20
 	private Set<ClassPathManifestEntry> getClassPathManifestEntriesFromJar(File jar) throws IOException {
 		URL base = jar.toURI().toURL();
 		File parent = jar.getAbsoluteFile().getParentFile();
@@ -1293,6 +1294,16 @@ public class PathMatchingResourcePatternResolver implements ResourcePatternResol
 		static ClassPathManifestEntry of(File file, @Nullable Boolean useCaches) throws MalformedURLException {
 			String path = fixPath(file.getAbsolutePath());
 			Resource resource = asJarFileResource(path, useCaches);
+			if (!resource.exists()) {
+				String encodedPath = fixPath(StringUtils.replace(file.getAbsolutePath(), "%", "%25"));
+				if (!encodedPath.equals(path)) {
+					Resource encodedResource = asJarFileResource(encodedPath, useCaches);
+					if (encodedResource.exists()) {
+						path = encodedPath;
+						resource = encodedResource;
+					}
+				}
+			}
 			Resource alternative = createAlternative(path, useCaches);
 			return new ClassPathManifestEntry(resource, alternative);
 		}
@@ -1315,7 +1326,7 @@ public class PathMatchingResourcePatternResolver implements ResourcePatternResol
 		 */
 		private static @Nullable Resource createAlternative(String path, @Nullable Boolean useCaches) {
 			try {
-				String alternativePath = path.startsWith("/") ? path.substring(1) : "/" + path;
+				String alternativePath = (path.startsWith("/") ? path.substring(1) : "/" + path);
 				return asJarFileResource(alternativePath, useCaches);
 			}
 			catch (MalformedURLException ex) {

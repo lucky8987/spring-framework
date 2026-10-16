@@ -148,6 +148,7 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 		this.observationConvention = other.observationConvention;
 	}
 
+	@SuppressWarnings("removal")
 	public DefaultRestClientBuilder(RestTemplate restTemplate) {
 		Assert.notNull(restTemplate, "RestTemplate must not be null");
 
@@ -167,6 +168,7 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 		this.observationConvention = restTemplate.getObservationConvention();
 	}
 
+	@SuppressWarnings("removal")
 	private static @Nullable UriBuilderFactory getUriBuilderFactory(RestTemplate restTemplate) {
 		UriTemplateHandler uriTemplateHandler = restTemplate.getUriTemplateHandler();
 		if (uriTemplateHandler instanceof DefaultUriBuilderFactory builderFactory) {
@@ -199,6 +201,7 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 				factory.shouldParsePath());
 	}
 
+	@SuppressWarnings("removal")
 	private static ClientHttpRequestFactory getRequestFactory(RestTemplate restTemplate) {
 		ClientHttpRequestFactory requestFactory = restTemplate.getRequestFactory();
 		if (requestFactory instanceof InterceptingClientHttpRequestFactory interceptingClientHttpRequestFactory) {
@@ -297,6 +300,7 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 	}
 
 	@Override
+	@SuppressWarnings("removal")
 	public RestClient.Builder defaultStatusHandler(ResponseErrorHandler errorHandler) {
 		return defaultStatusHandlerInternal(StatusHandler.fromErrorHandler(errorHandler));
 	}
@@ -493,16 +497,14 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 
 	private List<HttpMessageConverter<?>> initMessageConverters() {
 		HttpMessageConverters.ClientBuilder builder = HttpMessageConverters.forClient();
-		if (this.messageConverters == null && this.convertersConfigurer == null) {
-			builder.registerDefaults();
+		if (this.messageConverters != null) {
+			this.messageConverters.forEach(builder::addCustomConverter);
 		}
 		else {
-			if (this.messageConverters != null) {
-				this.messageConverters.forEach(builder::addCustomConverter);
-			}
-			if (this.convertersConfigurer != null) {
-				this.convertersConfigurer.accept(builder);
-			}
+			builder.registerDefaults();
+		}
+		if (this.convertersConfigurer != null) {
+			this.convertersConfigurer.accept(builder);
 		}
 		List<HttpMessageConverter<?>> result = new ArrayList<>();
 		builder.build().forEach(result::add);

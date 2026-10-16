@@ -40,6 +40,7 @@ import reactor.util.context.Context;
 import org.springframework.core.codec.DecodingException;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.core.io.buffer.DataBufferMatcher;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 
@@ -96,12 +97,12 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 	 */
 	public static Flux<Token> parse(Flux<DataBuffer> buffers, byte[] boundary, int maxHeadersSize,
 			Charset headersCharset) {
-		return Flux.create(sink -> {
+		return Flux.<Token>create(sink -> {
 			MultipartParser parser = new MultipartParser(sink, boundary, maxHeadersSize, headersCharset);
 			sink.onCancel(parser::onSinkCancel);
 			sink.onRequest(l -> parser.requestBuffer());
 			buffers.subscribe(parser);
-		});
+		}).doOnDiscard(BodyToken.class, body -> DataBufferUtils.release(body.buffer()));
 	}
 
 	@Override
@@ -306,7 +307,7 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 	 */
 	private final class PreambleState implements State {
 
-		private final DataBufferUtils.Matcher firstBoundary;
+		private final DataBufferMatcher firstBoundary;
 
 
 		public PreambleState() {
@@ -359,7 +360,7 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 	 */
 	private final class HeadersState implements State {
 
-		private final DataBufferUtils.Matcher endHeaders = DataBufferUtils.matcher(MultipartUtils.concat(CR_LF, CR_LF));
+		private final DataBufferMatcher endHeaders = DataBufferUtils.matcher(MultipartUtils.concat(CR_LF, CR_LF));
 
 		private final AtomicInteger byteCount = new AtomicInteger();
 
@@ -401,12 +402,18 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 
 					changeState(this, new BodyState(), buf);
 				}
+				else {
+					changeState(this, DisposedState.INSTANCE, buf);
+				}
 			}
 			else {
 				long count = this.byteCount.addAndGet(buf.readableByteCount());
 				if (belowMaxHeaderSize(count)) {
 					this.buffers.add(buf);
 					requestBuffer();
+				}
+				else {
+					changeState(this, DisposedState.INSTANCE, buf);
 				}
 			}
 		}
@@ -498,7 +505,7 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 	 */
 	private final class BodyState implements State {
 
-		private final DataBufferUtils.Matcher boundary;
+		private final DataBufferMatcher boundary;
 
 		private final int boundaryLength;
 
@@ -540,6 +547,7 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 					// iterate over buffers in reverse order
 					DataBufferUtils.release(boundaryBuffer);
 					DataBuffer prev;
+					boolean found = false;
 					while ((prev = this.queue.pollLast()) != null) {
 						int prevByteCount = prev.readableByteCount();
 						int prevLen = prevByteCount + len;
@@ -549,6 +557,7 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 							DataBufferUtils.release(prev);
 							enqueue(body);
 							flush();
+							found = true;
 							break;
 						}
 						else {
@@ -557,11 +566,21 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 							len += prevByteCount;
 						}
 					}
+					if (!found) {
+						// all buffered bytes were boundary bytes: the part had an empty body
+						emitBody(buffer.factory().allocateBuffer(0), true);
+					}
 				}
 				else /* if (len == 0) */ {
 					// buffer starts with complete delimiter, flush out the previous buffers
 					DataBufferUtils.release(boundaryBuffer);
-					flush();
+					if (this.queue.isEmpty()) {
+						// nothing was ever buffered for this part: the part had an empty body
+						emitBody(buffer.factory().allocateBuffer(0), true);
+					}
+					else {
+						flush();
+					}
 				}
 
 				changeState(this, new HeadersState(), buffer);
@@ -596,13 +615,17 @@ final class MultipartParser extends BaseSubscriber<DataBuffer> {
 			emit.forEach(buffer -> MultipartParser.this.emitBody(buffer, false));
 		}
 
+		/**
+		 * Emit all queued buffers, removing each from the queue before emitting it so
+		 * that {@link #dispose()} cannot release a buffer that was already handed over
+		 * to the sink. A cancellation arriving while this method emits would otherwise
+		 * release such a buffer a second time.
+		 */
 		private void flush() {
-			for (Iterator<DataBuffer> iterator = this.queue.iterator(); iterator.hasNext(); ) {
-				DataBuffer buffer = iterator.next();
-				boolean last = !iterator.hasNext();
-				MultipartParser.this.emitBody(buffer, last);
+			DataBuffer buffer;
+			while ((buffer = this.queue.poll()) != null) {
+				MultipartParser.this.emitBody(buffer, this.queue.isEmpty());
 			}
-			this.queue.clear();
 		}
 
 		@Override

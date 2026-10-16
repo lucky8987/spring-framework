@@ -35,13 +35,21 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.ByteArrayHttpMessageConverter;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
+import org.springframework.util.MultiValueMap;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
+import org.springframework.web.ErrorResponse;
+import org.springframework.web.ErrorResponseException;
+import org.springframework.web.accept.ContentNegotiationManager;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
@@ -53,6 +61,7 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.support.ModelAndViewContainer;
 import org.springframework.web.testfixture.servlet.MockHttpServletRequest;
 import org.springframework.web.testfixture.servlet.MockHttpServletResponse;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -65,7 +74,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @author Rossen Stoyanchev
  */
 @SuppressWarnings("unused")
-public class HttpEntityMethodProcessorTests {
+class HttpEntityMethodProcessorTests {
 
 	private MethodParameter paramList;
 
@@ -116,7 +125,7 @@ public class HttpEntityMethodProcessorTests {
 	}
 
 	@Test  // SPR-12861
-	public void resolveArgumentWithEmptyBody() throws Exception {
+	void resolveArgumentWithEmptyBody() throws Exception {
 		this.servletRequest.setContent(new byte[0]);
 		this.servletRequest.setContentType("application/json");
 
@@ -129,6 +138,26 @@ public class HttpEntityMethodProcessorTests {
 
 		assertThat(result).isNotNull();
 		assertThat(result.getBody()).isNull();
+	}
+
+	@Test // gh-36298
+	@SuppressWarnings("unchecked")
+	void shouldResolveEntityWithMutatedHeaders() throws Exception {
+		servletRequest.setMethod("POST");
+		servletRequest.addParameter("project", "spring%20framework");
+		servletRequest.addHeader("Content-Length", "project=spring%20framework".length());
+		servletRequest.setContentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE);
+
+		List<HttpMessageConverter<?>> converters = new ArrayList<>();
+		converters.add(new ByteArrayHttpMessageConverter());
+		HttpEntityMethodProcessor processor = new HttpEntityMethodProcessor(converters);
+
+		Method method = getClass().getDeclaredMethod("resolveAsByteArray", RequestEntity.class);
+		MethodParameter requestEntity = new MethodParameter(method, 0);
+		HttpEntity<byte[]> result = (HttpEntity<byte[]>) processor.resolveArgument(requestEntity,
+				this.mavContainer, this.webRequest, this.binderFactory);
+
+		assertThat(result.getBody().length).isEqualTo(result.getHeaders().getContentLength());
 	}
 
 	@Test
@@ -175,7 +204,7 @@ public class HttpEntityMethodProcessorTests {
 	}
 
 	@Test  // SPR-12811
-	public void jacksonTypeInfoList() throws Exception {
+	void jacksonTypeInfoList() throws Exception {
 		Method method = JacksonController.class.getMethod("handleList");
 		HandlerMethod handlerMethod = new HandlerMethod(new JacksonController(), method);
 		MethodParameter methodReturnType = handlerMethod.getReturnType();
@@ -193,7 +222,7 @@ public class HttpEntityMethodProcessorTests {
 	}
 
 	@Test  // SPR-13423
-	public void handleReturnValueCharSequence() throws Exception {
+	void handleReturnValueCharSequence() throws Exception {
 		List<HttpMessageConverter<?>>converters = new ArrayList<>();
 		converters.add(new ByteArrayHttpMessageConverter());
 		converters.add(new StringHttpMessageConverter());
@@ -210,7 +239,7 @@ public class HttpEntityMethodProcessorTests {
 	}
 
 	@Test  // SPR-13423
-	public void handleReturnValueWithETagAndETagFilter() throws Exception {
+	void handleReturnValueWithETagAndETagFilter() throws Exception {
 		String eTagValue = "\"deadb33f8badf00d\"";
 		String content = "body";
 
@@ -244,7 +273,7 @@ public class HttpEntityMethodProcessorTests {
 	}
 
 	@Test  // gh-24539
-	public void handleReturnValueWithMalformedAcceptHeader() throws Exception {
+	void handleReturnValueWithMalformedAcceptHeader() throws Exception {
 		webRequest.getNativeRequest(MockHttpServletRequest.class).addHeader("Accept", "null");
 
 		List<HttpMessageConverter<?>>converters = new ArrayList<>();
@@ -263,12 +292,37 @@ public class HttpEntityMethodProcessorTests {
 		assertThat(servletResponse.getContentAsString()).isEmpty();
 	}
 
+	@Test
+	void errorResponseInterceptorsWithRequest() throws Exception {
+		this.servletRequest.setRequestURI("/orders/42");
+		this.servletRequest.setQueryString("trace=on");
+		List<ErrorResponse.Interceptor> interceptors = List.of(
+				(detail, errorResponse) -> detail.setProperty("errorResponse", errorResponse != null),
+				new TraceParamInterceptor());
+		HttpEntityMethodProcessor processor = new HttpEntityMethodProcessor(
+				List.of(new JacksonJsonHttpMessageConverter()), new ContentNegotiationManager(), List.of(), interceptors);
+		MethodParameter returnType = new MethodParameter(getClass().getDeclaredMethod("handleErrorResponse"), -1);
+
+		processor.handleReturnValue(
+				new ErrorResponseException(HttpStatus.BAD_REQUEST), returnType, this.mavContainer, this.webRequest);
+
+		assertThat(this.servletResponse.getStatus()).isEqualTo(400);
+		assertThat(this.servletResponse.getContentAsString()).contains("\"errorResponse\":true", "\"trace\":\"on\"");
+	}
+
 	@SuppressWarnings("unused")
 	private void handle(HttpEntity<List<SimpleBean>> arg1, HttpEntity<SimpleBean> arg2) {
 	}
 
+	private ErrorResponse handleErrorResponse() {
+		return null;
+	}
+
 	private ResponseEntity<CharSequence> handle() {
 		return null;
+	}
+
+	private void resolveAsByteArray(RequestEntity<byte[]> request) {
 	}
 
 
@@ -389,6 +443,20 @@ public class HttpEntityMethodProcessorTests {
 			list.add(new Foo("foo"));
 			list.add(new Bar("bar"));
 			return new HttpEntity<>(list);
+		}
+	}
+
+
+	private static class TraceParamInterceptor implements ErrorResponse.Interceptor {
+
+		@Override
+		public void handleError(ProblemDetail detail, @Nullable ErrorResponse errorResponse) {
+		}
+
+		@Override
+		public void handleError(ProblemDetail detail, @Nullable ErrorResponse errorResponse, HttpRequest request) {
+			MultiValueMap<String, String> params = UriComponentsBuilder.fromUri(request.getURI()).build().getQueryParams();
+			detail.setProperty("trace", params.getFirst("trace"));
 		}
 	}
 

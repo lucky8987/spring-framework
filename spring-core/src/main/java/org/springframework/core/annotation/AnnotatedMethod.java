@@ -18,16 +18,16 @@ package org.springframework.core.annotation;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.BridgeMethodResolver;
 import org.springframework.core.MethodParameter;
-import org.springframework.core.ResolvableType;
 import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.ReflectionUtils;
@@ -48,11 +48,15 @@ import org.springframework.util.StringUtils;
  */
 public class AnnotatedMethod {
 
+	private static final Object NO_ANNOTATION = new Object();
+
 	private final Method method;
 
 	private final Method bridgedMethod;
 
 	private final MethodParameter[] parameters;
+
+	private final Map<Class<? extends Annotation>, Object> annotations;
 
 	private volatile @Nullable List<Annotation[][]> inheritedParameterAnnotations;
 
@@ -67,6 +71,7 @@ public class AnnotatedMethod {
 		this.bridgedMethod = BridgeMethodResolver.findBridgedMethod(method);
 		ReflectionUtils.makeAccessible(this.bridgedMethod);
 		this.parameters = initMethodParameters();
+		this.annotations = new ConcurrentHashMap<>(4);
 	}
 
 	/**
@@ -77,6 +82,7 @@ public class AnnotatedMethod {
 		this.method = annotatedMethod.method;
 		this.bridgedMethod = annotatedMethod.bridgedMethod;
 		this.parameters = annotatedMethod.parameters;
+		this.annotations = annotatedMethod.annotations;
 		this.inheritedParameterAnnotations = annotatedMethod.inheritedParameterAnnotations;
 	}
 
@@ -149,8 +155,13 @@ public class AnnotatedMethod {
 	 * @return the annotation, or {@code null} if none found
 	 * @see AnnotatedElementUtils#findMergedAnnotation
 	 */
+	@SuppressWarnings("unchecked")
 	public <A extends Annotation> @Nullable A getMethodAnnotation(Class<A> annotationType) {
-		return AnnotatedElementUtils.findMergedAnnotation(this.method, annotationType);
+		Object result = this.annotations.computeIfAbsent(annotationType, key -> {
+					Object value = AnnotatedElementUtils.findMergedAnnotation(this.method, annotationType);
+					return (value == null ? NO_ANNOTATION : value);
+				});
+		return (result == NO_ANNOTATION ? null : (A) result);
 	}
 
 	/**
@@ -160,7 +171,7 @@ public class AnnotatedMethod {
 	 * @see AnnotatedElementUtils#hasAnnotation
 	 */
 	public <A extends Annotation> boolean hasMethodAnnotation(Class<A> annotationType) {
-		return AnnotatedElementUtils.hasAnnotation(this.method, annotationType);
+		return (getMethodAnnotation(annotationType) != null);
 	}
 
 	private List<Annotation[][]> getInheritedParameterAnnotations() {
@@ -171,7 +182,7 @@ public class AnnotatedMethod {
 			while (clazz != null) {
 				for (Class<?> ifc : clazz.getInterfaces()) {
 					for (Method candidate : ifc.getMethods()) {
-						if (isOverrideFor(candidate)) {
+						if (AnnotationsScanner.isOverride(this.method, candidate)) {
 							parameterAnnotations.add(candidate.getParameterAnnotations());
 						}
 					}
@@ -182,7 +193,7 @@ public class AnnotatedMethod {
 				}
 				if (clazz != null) {
 					for (Method candidate : clazz.getDeclaredMethods()) {
-						if (isOverrideFor(candidate)) {
+						if (AnnotationsScanner.isOverride(this.method, candidate)) {
 							parameterAnnotations.add(candidate.getParameterAnnotations());
 						}
 					}
@@ -191,25 +202,6 @@ public class AnnotatedMethod {
 			this.inheritedParameterAnnotations = parameterAnnotations;
 		}
 		return parameterAnnotations;
-	}
-
-	private boolean isOverrideFor(Method candidate) {
-		if (Modifier.isPrivate(candidate.getModifiers()) ||
-				!candidate.getName().equals(this.method.getName()) ||
-				(candidate.getParameterCount() != this.method.getParameterCount())) {
-			return false;
-		}
-		Class<?>[] paramTypes = this.method.getParameterTypes();
-		if (Arrays.equals(candidate.getParameterTypes(), paramTypes)) {
-			return true;
-		}
-		for (int i = 0; i < paramTypes.length; i++) {
-			if (paramTypes[i] !=
-					ResolvableType.forMethodParameter(candidate, i, this.method.getDeclaringClass()).toClass()) {
-				return false;
-			}
-		}
-		return true;
 	}
 
 

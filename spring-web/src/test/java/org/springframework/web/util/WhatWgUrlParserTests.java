@@ -16,6 +16,9 @@
 
 package org.springframework.web.util;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Arjen Poutsma
+ * @author Sebastien Deleuze
  */
 class WhatWgUrlParserTests {
 
@@ -41,6 +45,40 @@ class WhatWgUrlParserTests {
 		testParse("/foo/../bar/", "", null, null, "/bar/", null, null);
 		testParse("//other.info/foo/bar", "", "other.info", null, "/foo/bar", null, null);
 		testParse("//other.info/parent/../foo/bar", "", "other.info", null, "/foo/bar", null, null);
+	}
+
+	@Test
+	void parseAsciiHost() {
+		// Pure ASCII host is lowercased
+		testParse("https://EXAMPLE.com/foo", "https", "example.com", null, "/foo", null, null);
+		// ASCII "xn--" (ACE) labels are accepted and lowercased (in any case), not validated or rejected.
+		// See https://url.spec.whatwg.org/#concept-domain-to-ascii and web-platform-tests url cases.
+		testParse("https://a.b.c.xn--pokxncvks", "https", "a.b.c.xn--pokxncvks", null, "", null, null);
+		testParse("https://a.b.c.XN--pokxncvks", "https", "a.b.c.xn--pokxncvks", null, "", null, null);
+		testParse("https://a.b.c.Xn--pokxncvks", "https", "a.b.c.xn--pokxncvks", null, "", null, null);
+		// A trailing non-numeric "xn--" label keeps a numeric-looking host as a domain, not an IPv4 address.
+		testParse("https://10.0.0.xn--pokxncvks", "https", "10.0.0.xn--pokxncvks", null, "", null, null);
+		testParse("https://10.0.0.XN--pokxncvks", "https", "10.0.0.xn--pokxncvks", null, "", null, null);
+		testParse("https://10.0.0.xN--pokxncvks", "https", "10.0.0.xn--pokxncvks", null, "", null, null);
+		// Leading ACE label is handled too, and an empty "xn--" label is accepted (not a failure)
+		testParse("https://XN--pokxncvks.example", "https", "xn--pokxncvks.example", null, "", null, null);
+		testParse("https://xn--/", "https", "xn--", null, "/", null, null);
+		testParse("file://xn--/p", "file", "xn--", null, "/p", null, null);
+	}
+
+	@Test
+	void parseOpaqueHostTruncatedPercentEscape() {
+		// A truncated or non-hex percent-escape in an opaque host is a validation error,
+		// not a failure, and must not read past the end of the input
+		// (see https://url.spec.whatwg.org/#concept-opaque-host-parser).
+		List<String> errors = new ArrayList<>();
+		WhatWgUrlParser.UrlRecord record = WhatWgUrlParser.parse("foo://%4", EMPTY_URL_RECORD, null, errors::add);
+		assertThat(record.host().toString()).isEqualTo("%4");
+
+		record = WhatWgUrlParser.parse("foo://%4x", EMPTY_URL_RECORD, null, errors::add);
+		assertThat(record.host().toString()).isEqualTo("%4x");
+
+		assertThat(errors).isNotEmpty();
 	}
 
 	private void testParse(String input, String scheme, @Nullable String host, @Nullable String port, String path, @Nullable String query, @Nullable String fragment) {

@@ -21,21 +21,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import jakarta.validation.constraints.NotNull;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
+import org.springframework.beans.ConfigurablePropertyAccessor;
+import org.springframework.beans.InvalidPropertyException;
 import org.springframework.core.ResolvableType;
 import org.springframework.format.support.DefaultFormattingConversionService;
 import org.springframework.util.Assert;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 /**
  * Tests for {@link DataBinder} with constructor binding.
  *
  * @author Rossen Stoyanchev
+ * @author Sam Brannen
  */
 class DataBinderConstructTests {
 
@@ -158,6 +163,27 @@ class DataBinderConstructTests {
 		assertThat(map.get("c").param1()).isEqualTo("value3");
 	}
 
+	@Test  // gh-37019
+	void dataClassWithMapBindingConstructsValueOncePerKey() {
+		CountingRecord.constructorCallCount.set(0);
+		MapValueResolver valueResolver = new MapValueResolver(Map.of(
+				"countingMap[a].param1", "value1", "countingMap[a].param2", "value2",
+				"countingMap[b].param1", "value3", "countingMap[b].param2", "value4"));
+
+		DataBinder binder = initDataBinder(CountingMapRecord.class);
+		binder.construct(valueResolver);
+
+		CountingMapRecord target = getTarget(binder);
+		Map<String, CountingRecord> map = target.countingMap();
+
+		assertThat(map).hasSize(2);
+		assertThat(map.get("a").param1()).isEqualTo("value1");
+		assertThat(map.get("a").param2()).isEqualTo("value2");
+		assertThat(map.get("b").param1()).isEqualTo("value3");
+		assertThat(map.get("b").param2()).isEqualTo("value4");
+		assertThat(CountingRecord.constructorCallCount).hasValue(2);
+	}
+
 	@Test
 	void dataClassWithArrayBinding() {
 		MapValueResolver valueResolver = new MapValueResolver(Map.of(
@@ -249,6 +275,35 @@ class DataBinderConstructTests {
 		assertThat(target.integerMapList().get(1)).containsOnly(Map.entry("a", 3), Map.entry("b", 4));
 	}
 
+	@Test  // gh-37252
+	void maxNestedPathDepth() {
+		DataBinder binder = initDataBinder(NodeRecord.class);
+		binder.setMaxNestedPathDepth(2);
+
+		// depth == max
+		binder.construct(new MapValueResolver(Map.of("next.next.value", "enigma")));
+		NodeRecord target = getTarget(binder);
+		assertThat(target.next().next().value()).isEqualTo("enigma");
+
+		// depth > max
+		DataBinder tooDeep = initDataBinder(NodeRecord.class);
+		tooDeep.setMaxNestedPathDepth(2);
+		assertThatExceptionOfType(InvalidPropertyException.class)
+				.isThrownBy(() -> tooDeep.construct(new MapValueResolver(Map.of("next.next.next.value", "enigma"))))
+				.withMessageEndingWith("Nesting depth of property path exceeds the maximum of 2");
+	}
+
+	@Test  // gh-37252
+	void maxNestedPathDepthProtectsAgainstStackOverflow() {
+		DataBinder binder = initDataBinder(NodeRecord.class);
+
+		String propertyPath = "next.".repeat(100_000) + "value";
+		assertThatExceptionOfType(InvalidPropertyException.class)
+				.isThrownBy(() -> binder.construct(new MapValueResolver(Map.of(propertyPath, "enigma"))))
+				.withMessageEndingWith("Nesting depth of property path exceeds the maximum of " +
+						ConfigurablePropertyAccessor.DEFAULT_MAX_NESTED_PATH_DEPTH);
+	}
+
 
 	@SuppressWarnings("SameParameterValue")
 	private static DataBinder initDataBinder(Class<?> targetType) {
@@ -319,11 +374,33 @@ class DataBinderConstructTests {
 	}
 
 
+	/**
+	 * A self-referential record, for which the nesting depth of a property path is
+	 * bounded by the supplied input rather than by the structure of the type.
+	 */
+	private record NodeRecord(@Nullable NodeRecord next, @Nullable String value) {
+	}
+
+
 	private record DataClassListRecord(List<DataClass> dataClassList) {
 	}
 
 
 	private record DataClassMapRecord(Map<String, DataClass> dataClassMap) {
+	}
+
+
+	record CountingRecord(String param1, String param2) {
+
+		static final AtomicInteger constructorCallCount = new AtomicInteger();
+
+		CountingRecord {
+			constructorCallCount.incrementAndGet();
+		}
+	}
+
+
+	private record CountingMapRecord(Map<String, CountingRecord> countingMap) {
 	}
 
 

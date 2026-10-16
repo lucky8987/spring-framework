@@ -24,7 +24,6 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeSet;
@@ -108,6 +107,8 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 
 	private volatile @Nullable String toStringValue;
 
+	private volatile int hash;
+
 
 	/**
 	 * Create a new {@code MimeType} for the given primary type.
@@ -140,31 +141,6 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 	 */
 	public MimeType(String type, String subtype, Charset charset) {
 		this(type, subtype, Collections.singletonMap(PARAM_CHARSET, charset.name()));
-		this.resolvedCharset = charset;
-	}
-
-	/**
-	 * Copy-constructor that copies the type, subtype, parameters of the given {@code MimeType},
-	 * and allows to set the specified character set.
-	 * @param other the other MimeType
-	 * @param charset the character set
-	 * @throws IllegalArgumentException if any of the parameters contains illegal characters
-	 * @since 4.3
-	 */
-	public MimeType(MimeType other, Charset charset) {
-		this(other.getType(), other.getSubtype(), addCharsetParameter(charset, other.getParameters()));
-		this.resolvedCharset = charset;
-	}
-
-	/**
-	 * Copy-constructor that copies the type and subtype of the given {@code MimeType},
-	 * and allows for different parameter.
-	 * @param other the other MimeType
-	 * @param parameters the parameters (may be {@code null})
-	 * @throws IllegalArgumentException if any of the parameters contains illegal characters
-	 */
-	public MimeType(MimeType other, @Nullable Map<String, String> parameters) {
-		this(other.getType(), other.getSubtype(), parameters);
 	}
 
 	/**
@@ -181,16 +157,43 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 		checkToken(subtype);
 		this.type = type.toLowerCase(Locale.ROOT);
 		this.subtype = subtype.toLowerCase(Locale.ROOT);
-		if (!CollectionUtils.isEmpty(parameters)) {
-			Map<String, String> map = new LinkedCaseInsensitiveMap<>(parameters.size(), Locale.ROOT);
-			parameters.forEach((parameter, value) -> {
-				checkParameters(parameter, value);
-				map.put(parameter, value);
-			});
-			this.parameters = Collections.unmodifiableMap(map);
+		this.parameters = createParametersMap(parameters);
+		if (this.parameters.containsKey(PARAM_CHARSET)) {
+			this.resolvedCharset = Charset.forName(unquote(this.parameters.get(PARAM_CHARSET)));
 		}
-		else {
-			this.parameters = Collections.emptyMap();
+	}
+
+	/**
+	 * Copy-constructor that copies the type, subtype, parameters of the given {@code MimeType},
+	 * and allows to set the specified character set.
+	 * @param other the other MimeType
+	 * @param charset the character set
+	 * @throws IllegalArgumentException if any of the parameters contains illegal characters
+	 * @since 4.3
+	 */
+	public MimeType(MimeType other, Charset charset) {
+		this.type = other.type;
+		this.subtype = other.subtype;
+		Map<String, String> map = new LinkedCaseInsensitiveMap<>(other.parameters.size() + 1, Locale.ROOT);
+		map.putAll(other.parameters);
+		map.put(PARAM_CHARSET, charset.name());
+		this.parameters = Collections.unmodifiableMap(map);
+		this.resolvedCharset = charset;
+	}
+
+	/**
+	 * Copy-constructor that copies the type and subtype of the given {@code MimeType},
+	 * and allows for different parameter.
+	 * @param other the other MimeType
+	 * @param parameters the parameters (may be {@code null})
+	 * @throws IllegalArgumentException if any of the parameters contains illegal characters
+	 */
+	public MimeType(MimeType other, @Nullable Map<String, String> parameters) {
+		this.type = other.type;
+		this.subtype = other.subtype;
+		this.parameters = createParametersMap(parameters);
+		if (this.parameters.containsKey(PARAM_CHARSET)) {
+			this.resolvedCharset = Charset.forName(unquote(this.parameters.get(PARAM_CHARSET)));
 		}
 	}
 
@@ -206,6 +209,7 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 		this.parameters = other.parameters;
 		this.resolvedCharset = other.resolvedCharset;
 		this.toStringValue = other.toStringValue;
+		this.hash = other.hash;
 	}
 
 	/**
@@ -223,16 +227,25 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 		}
 	}
 
+	private Map<String, String> createParametersMap(@Nullable Map<String, String> parameters) {
+		if (!CollectionUtils.isEmpty(parameters)) {
+			Map<String, String> map = new LinkedCaseInsensitiveMap<>(parameters.size(), Locale.ROOT);
+			parameters.forEach((parameter, value) -> {
+				checkParameters(parameter, value);
+				map.put(parameter, value);
+			});
+			return Collections.unmodifiableMap(map);
+		}
+		else {
+			return Collections.emptyMap();
+		}
+	}
+
 	protected void checkParameters(String parameter, String value) {
 		Assert.hasLength(parameter, "'parameter' must not be empty");
 		Assert.hasLength(value, "'value' must not be empty");
 		checkToken(parameter);
-		if (PARAM_CHARSET.equals(parameter)) {
-			if (this.resolvedCharset == null) {
-				this.resolvedCharset = Charset.forName(unquote(value));
-			}
-		}
-		else if (!isQuotedString(value)) {
+		if (!isQuotedString(value)) {
 			checkToken(value);
 		}
 	}
@@ -244,8 +257,29 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 		return ((s.startsWith("\"") && s.endsWith("\"")) || (s.startsWith("'") && s.endsWith("'")));
 	}
 
+	/**
+	 * Unquote the given string, resolving any quoted-pair escapes it might
+	 * contain (for example, {@code "1\"2"} becomes {@code 1"2}) in the process.
+	 * <p>Returns the given string as-is if it is not a quoted string.
+	 */
 	protected String unquote(String s) {
-		return (isQuotedString(s) ? s.substring(1, s.length() - 1) : s);
+		if (!isQuotedString(s)) {
+			return s;
+		}
+		String inner = s.substring(1, s.length() - 1);
+		if (inner.indexOf('\\') == -1) {
+			return inner;
+		}
+		StringBuilder sb = new StringBuilder(inner.length());
+		for (int i = 0; i < inner.length(); i++) {
+			char c = inner.charAt(i);
+			if (c == '\\' && i + 1 < inner.length()) {
+				i++;
+				c = inner.charAt(i);
+			}
+			sb.append(c);
+		}
+		return sb.toString();
 	}
 
 	/**
@@ -452,7 +486,9 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 	/**
 	 * Determine if the parameters in this {@code MimeType} and the supplied
 	 * {@code MimeType} are equal, performing case-insensitive comparisons
-	 * for {@link Charset Charsets}.
+	 * for parameter names and {@link Charset Charsets}, and disregarding
+	 * quoting of parameter values, so that, for example, {@code spring="framework"}
+	 * and {@code spring=framework} are considered equal.
 	 * @since 4.2
 	 */
 	private boolean parametersAreEqual(MimeType other) {
@@ -465,12 +501,12 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 			if (!other.parameters.containsKey(key)) {
 				return false;
 			}
-			if (PARAM_CHARSET.equals(key)) {
+			if (PARAM_CHARSET.equalsIgnoreCase(key)) {
 				if (!ObjectUtils.nullSafeEquals(getCharset(), other.getCharset())) {
 					return false;
 				}
 			}
-			else if (!ObjectUtils.nullSafeEquals(entry.getValue(), other.parameters.get(key))) {
+			else if (!ObjectUtils.nullSafeEquals(unquote(entry.getValue()), unquote(other.parameters.get(key)))) {
 				return false;
 			}
 		}
@@ -480,9 +516,28 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 
 	@Override
 	public int hashCode() {
-		int result = this.type.hashCode();
-		result = 31 * result + this.subtype.hashCode();
-		result = 31 * result + this.parameters.hashCode();
+		int result = this.hash;
+		if (result == 0) {
+			result = this.type.hashCode();
+			result = 31 * result + this.subtype.hashCode();
+			result = 31 * result + parametersHashCode();
+			this.hash = result;
+		}
+		return result;
+	}
+
+	/**
+	 * Compute a hash code for the parameters map, consistent with
+	 * {@link #parametersAreEqual}: normalizing parameter names and
+	 * {@link Charset Charsets}, and disregarding quoting of parameter values.
+	 */
+	private int parametersHashCode() {
+		int result = 0;
+		for (Map.Entry<String, String> entry : this.parameters.entrySet()) {
+			String key = entry.getKey();
+			Object value = (PARAM_CHARSET.equalsIgnoreCase(key) ? getCharset() : unquote(entry.getValue()));
+			result += key.toLowerCase(Locale.ROOT).hashCode() ^ ObjectUtils.nullSafeHashCode(value);
+		}
 		return result;
 	}
 
@@ -537,17 +592,15 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 		thisAttributes.addAll(getParameters().keySet());
 		TreeSet<String> otherAttributes = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 		otherAttributes.addAll(other.getParameters().keySet());
-		Iterator<String> thisAttributesIterator = thisAttributes.iterator();
 		Iterator<String> otherAttributesIterator = otherAttributes.iterator();
 
-		while (thisAttributesIterator.hasNext()) {
-			String thisAttribute = thisAttributesIterator.next();
+		for (String thisAttribute : thisAttributes) {
 			String otherAttribute = otherAttributesIterator.next();
 			comp = thisAttribute.compareToIgnoreCase(otherAttribute);
 			if (comp != 0) {
 				return comp;
 			}
-			if (PARAM_CHARSET.equals(thisAttribute)) {
+			if (PARAM_CHARSET.equalsIgnoreCase(thisAttribute)) {
 				Charset thisCharset = getCharset();
 				Charset otherCharset = other.getCharset();
 				if (thisCharset != otherCharset) {
@@ -570,7 +623,7 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 				if (otherValue == null) {
 					otherValue = "";
 				}
-				comp = thisValue.compareTo(otherValue);
+				comp = unquote(thisValue).compareTo(unquote(otherValue));
 				if (comp != 0) {
 					return comp;
 				}
@@ -682,12 +735,6 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 	 */
 	public static MimeType valueOf(String value) {
 		return MimeTypeUtils.parseMimeType(value);
-	}
-
-	private static Map<String, String> addCharsetParameter(Charset charset, Map<String, String> parameters) {
-		Map<String, String> map = new LinkedHashMap<>(parameters);
-		map.put(PARAM_CHARSET, charset.name());
-		return map;
 	}
 
 }

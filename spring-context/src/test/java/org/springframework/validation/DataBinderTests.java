@@ -40,7 +40,9 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.BeanWrapper;
+import org.springframework.beans.ConfigurablePropertyAccessor;
 import org.springframework.beans.InvalidPropertyException;
+import org.springframework.beans.InvalidPropertyPathException;
 import org.springframework.beans.MethodInvocationException;
 import org.springframework.beans.MutablePropertyValues;
 import org.springframework.beans.NotWritablePropertyException;
@@ -113,7 +115,7 @@ class DataBinderTests {
 		Map<?, ?> map = binder.getBindingResult().getModel();
 		assertThat(map).as("There is one element in map").hasSize(2);
 		TestBean tb = (TestBean) map.get("person");
-		assertThat(tb.equals(rod)).as("Same object").isTrue();
+		assertThat(tb).as("Same object").isEqualTo(rod);
 
 		BindingResult other = new DataBinder(rod, "person").getBindingResult();
 		assertThat(binder.getBindingResult()).isEqualTo(other);
@@ -715,25 +717,77 @@ class DataBinderTests {
 	}
 
 	@Test
+	@SuppressWarnings("removal")
 	void bindingWithDisallowedFields() throws BindException {
 		TestBean rod = new TestBean();
 		DataBinder binder = new DataBinder(rod);
-		binder.setDisallowedFields(" ", "\t", "favouriteColour", null, "age");
+		binder.setDisallowedFields(" ", "\t", "favoriteColor", null, "age");
 		MutablePropertyValues pvs = new MutablePropertyValues();
 		pvs.add("name", "Rod");
 		pvs.add("age", "32x");
-		pvs.add("favouriteColour", "BLUE");
+		pvs.add("favoriteColor", "BLUE");
 
 		binder.bind(pvs);
 		binder.close();
 
 		assertThat(rod.getName()).as("changed name correctly").isEqualTo("Rod");
 		assertThat(rod.getAge()).as("did not change age").isZero();
-		assertThat(rod.getFavouriteColour()).as("did not change favourite colour").isNull();
-		assertThat(binder.getBindingResult().getSuppressedFields()).containsExactlyInAnyOrder("age", "favouriteColour");
+		assertThat(rod.getFavoriteColor()).as("did not change favorite color").isNull();
+		assertThat(binder.getBindingResult().getSuppressedFields()).containsExactlyInAnyOrder("age", "favoriteColor");
+	}
+
+	@Test  // gh-37275
+	void bindingWithMalformedFieldNameSurfacesAsFieldErrorRatherThanBeingSilentlyDropped() throws BindException {
+		TestBean rod = new TestBean();
+		DataBinder binder = new DataBinder(rod, "rod");
+		MutablePropertyValues pvs = new MutablePropertyValues();
+		pvs.add("name", "Rod");
+		pvs.add("map[key1]other", "value");  // trailing garbage after a key: not a well-formed property path
+
+		binder.bind(pvs);
+
+		assertThat(rod.getName()).as("well-formed fields still bind").isEqualTo("Rod");
+		assertThat(binder.getBindingResult().getFieldErrors("map[key1]other")).singleElement().satisfies(error -> {
+			assertThat(error.getCode()).isEqualTo(InvalidPropertyPathException.ERROR_CODE);
+			assertThat(error.getRejectedValue()).isEqualTo("value");
+		});
+		assertThatExceptionOfType(BindException.class).isThrownBy(binder::close);
+	}
+
+	@Test  // gh-37275
+	void bindingWithMalformedFieldNameIsNotSuppressedEvenWhenAllowedFieldsAreConfigured() throws BindException {
+		TestBean rod = new TestBean();
+		DataBinder binder = new DataBinder(rod, "rod");
+		binder.setAllowedFields("name");
+		MutablePropertyValues pvs = new MutablePropertyValues();
+		pvs.add("name", "Rod");
+		pvs.add("map[key1]other", "value");
+
+		binder.bind(pvs);
+
+		assertThat(binder.getBindingResult().getSuppressedFields()).isEmpty();
+		assertThat(binder.getBindingResult().getFieldErrors("map[key1]other")).hasSize(1);
+	}
+
+	@Test  // gh-37275
+	void isAllowedNeverThrowsForMalformedField() {
+		class ExposingBinder extends DataBinder {
+			ExposingBinder(Object target) {
+				super(target, "target");
+			}
+			boolean callIsAllowed(String field) {
+				return isAllowed(field);
+			}
+		}
+
+		ExposingBinder binder = new ExposingBinder(new TestBean());
+		binder.setAllowedFields("name");
+
+		assertThat(binder.callIsAllowed("map[key1]other")).isFalse();
 	}
 
 	@Test
+	@SuppressWarnings("removal")
 	void bindingWithAllowedAndDisallowedFields() throws BindException {
 		TestBean rod = new TestBean();
 		DataBinder binder = new DataBinder(rod);
@@ -752,6 +806,7 @@ class DataBinderTests {
 	}
 
 	@Test
+	@SuppressWarnings("removal")
 	void bindingWithOverlappingAllowedAndDisallowedFields() throws BindException {
 		TestBean rod = new TestBean();
 		DataBinder binder = new DataBinder(rod);
@@ -793,10 +848,11 @@ class DataBinderTests {
 		Map<?,?> m = binder.getBindingResult().getModel();
 		assertThat(m).as("There is one element in map").hasSize(2);
 		TestBean tb = (TestBean) m.get("person");
-		assertThat(tb.equals(rod)).as("Same object").isTrue();
+		assertThat(tb).as("Same object").isEqualTo(rod);
 	}
 
 	@Test
+	@SuppressWarnings("removal")
 	void bindingWithAllowedAndDisallowedMapFields() throws BindException {
 		TestBean rod = new TestBean();
 		DataBinder binder = new DataBinder(rod);
@@ -1854,8 +1910,12 @@ class DataBinderTests {
 
 		FieldError ageError = errors.getFieldError("age");
 		assertThat(ageError.getCode()).isEqualTo("typeMismatch");
+		assertThat(ageError.isBindingFailure()).isTrue();
+		assertThat(ageError.shouldRenderDefaultMessage()).isFalse();
 		FieldError nameError = errors.getFieldError("name");
 		assertThat(nameError.getCode()).isEqualTo("badName");
+		assertThat(nameError.isBindingFailure()).isFalse();
+		assertThat(nameError.shouldRenderDefaultMessage()).isTrue();
 	}
 
 	@Test
@@ -2052,6 +2112,53 @@ class DataBinderTests {
 		assertThatIllegalStateException().isThrownBy(() ->
 				binder.setAutoGrowCollectionLimit(257))
 			.withMessageContaining("DataBinder is already initialized - call setAutoGrowCollectionLimit before other configuration methods");
+	}
+
+	@Test  // gh-37252
+	void defaultMaxNestedPathDepthIsAppliedToPropertyAccessor() {
+		DataBinder binder = new DataBinder(new TestBean(), "testBean");
+
+		assertThat(binder.getMaxNestedPathDepth())
+				.isEqualTo(ConfigurablePropertyAccessor.DEFAULT_MAX_NESTED_PATH_DEPTH);
+		assertThat(binder.getInternalBindingResult().getPropertyAccessor().getMaxNestedPathDepth())
+				.isEqualTo(ConfigurablePropertyAccessor.DEFAULT_MAX_NESTED_PATH_DEPTH);
+	}
+
+	@Test  // gh-37252
+	void setMaxNestedPathDepth() {
+		TestBean rod = new TestBean("rod", 31);
+		TestBean kerry = new TestBean("kerry", 35);
+		rod.setSpouse(kerry);
+		kerry.setSpouse(rod);
+
+		DataBinder binder = new DataBinder(rod, "rod");
+		binder.setMaxNestedPathDepth(2);
+
+		MutablePropertyValues pvs = new MutablePropertyValues();
+		pvs.add("spouse.spouse.name", "Jane");
+		binder.bind(pvs);
+		assertThat(rod.getName()).isEqualTo("Jane");
+
+		MutablePropertyValues tooDeep = new MutablePropertyValues();
+		tooDeep.add("spouse.spouse.spouse.name", "Joe");
+		binder.bind(tooDeep);
+		assertThat(binder.getBindingResult().getFieldErrors("spouse.spouse.spouse.name")).singleElement().satisfies(error -> {
+			assertThat(error.getCode()).isEqualTo(InvalidPropertyPathException.ERROR_CODE);
+			assertThat(error.getRejectedValue()).isEqualTo("Joe");
+		});
+	}
+
+	@Test  // gh-37252
+	void setMaxNestedPathDepthAfterInitialization() {
+		DataBinder binder = new DataBinder(new TestBean());
+		binder.registerCustomEditor(String.class, new StringTrimmerEditor(true));
+
+		assertThatIllegalStateException()
+				.isThrownBy(() -> binder.setMaxNestedPathDepth(2))
+				.withMessageContaining("""
+					DataBinder is already initialized - \
+					call setMaxNestedPathDepth before other configuration methods\
+					""");
 	}
 
 	@Test  // SPR-15009

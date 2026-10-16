@@ -19,6 +19,7 @@ package org.springframework.beans.factory;
 import java.io.Closeable;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
 import java.net.MalformedURLException;
 import java.text.NumberFormat;
 import java.text.ParseException;
@@ -79,6 +80,7 @@ import org.springframework.beans.testfixture.beans.TestBean;
 import org.springframework.beans.testfixture.beans.factory.DummyFactory;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.Ordered;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.ResolvableType;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.core.annotation.Order;
@@ -114,6 +116,7 @@ import static org.mockito.Mockito.verify;
  * @author Phillip Webb
  * @author Stephane Nicoll
  * @author Yanming Zhou
+ * @author Greg Taube
  */
 class DefaultListableBeanFactoryTests {
 
@@ -516,11 +519,11 @@ class DefaultListableBeanFactoryTests {
 		String[] names = lbf.getBeanDefinitionNames();
 		assertThat(names != lbf.getBeanDefinitionNames()).isTrue();
 		assertThat(names.length == 1).as("Array length == 1").isTrue();
-		assertThat(names[0].equals("test")).as("0th element == test").isTrue();
+		assertThat(names[0]).as("0th element == test").isEqualTo("test");
 
 		TestBean tb = (TestBean) lbf.getBean("test");
 		assertThat(tb != null).as("Test is non null").isTrue();
-		assertThat("Tony".equals(tb.getName())).as("Test bean name is Tony").isTrue();
+		assertThat("Tony").as("Test bean name is Tony").isEqualTo(tb.getName());
 		assertThat(tb.getAge() == 48).as("Test bean age is 48").isTrue();
 	}
 
@@ -1236,11 +1239,13 @@ class DefaultListableBeanFactoryTests {
 		RootBeanDefinition bd1 = new RootBeanDefinition(TestBean.class);
 		bd1.setScope(BeanDefinition.SCOPE_PROTOTYPE);
 		lbf.registerBeanDefinition("testBean", bd1);
+		assertThat(lbf.getBeanDefinition("testBean").getScope()).isEqualTo(BeanDefinition.SCOPE_PROTOTYPE);
 		assertThat(lbf.getBean("testBean")).isInstanceOf(TestBean.class);
 
 		RootBeanDefinition bd2 = new RootBeanDefinition(NestedTestBean.class);
-		bd2.setScope(BeanDefinition.SCOPE_PROTOTYPE);
+		bd2.setScope(BeanDefinition.SCOPE_SINGLETON);
 		lbf.registerBeanDefinition("testBean", bd2);
+		assertThat(lbf.getBeanDefinition("testBean").getScope()).isEqualTo(BeanDefinition.SCOPE_SINGLETON);
 		assertThat(lbf.getBean("testBean")).isInstanceOf(NestedTestBean.class);
 	}
 
@@ -1680,6 +1685,46 @@ class DefaultListableBeanFactoryTests {
 
 		assertThatExceptionOfType(NoUniqueBeanDefinitionException.class).isThrownBy(() ->
 				lbf.getBean(TestBean.class));
+	}
+
+	@Test  // gh-34687
+	void getBeanByNameWithTypeReference() {
+		RootBeanDefinition bd1 = new RootBeanDefinition(StringTemplate.class);
+		RootBeanDefinition bd2 = new RootBeanDefinition(NumberTemplate.class);
+		lbf.registerBeanDefinition("bd1", bd1);
+		lbf.registerBeanDefinition("bd2", bd2);
+
+		Template<String> stringTemplate = lbf.getBean("bd1", new ParameterizedTypeReference<>() {});
+		Template<Number> numberTemplate = lbf.getBean("bd2", new ParameterizedTypeReference<>() {});
+
+		assertThat(stringTemplate).isInstanceOf(StringTemplate.class);
+		assertThat(numberTemplate).isInstanceOf(NumberTemplate.class);
+
+		assertThatExceptionOfType(BeanNotOfRequiredTypeException.class)
+				.isThrownBy(() -> lbf.getBean("bd2", new ParameterizedTypeReference<Template<String>>() {}))
+				.satisfies(ex -> {
+					assertThat(ex.getBeanName()).isEqualTo("bd2");
+					assertThat(ex.getRequiredType()).isEqualTo(Template.class);
+					assertThat(ex.getActualType()).isEqualTo(NumberTemplate.class);
+					assertThat(ex.getGenericRequiredType().toString()).endsWith("Template<java.lang.String>");
+				});
+	}
+
+	@Test  // gh-37047
+	void getBeanByNameWithTypeReferenceMatchingGenericTypeOnAopProxy() {
+		RootBeanDefinition bd = new RootBeanDefinition(ProxiedStringTemplate.class);
+		bd.setTargetType(ResolvableType.forClass(ProxiedStringTemplate.class));
+		lbf.registerBeanDefinition("proxiedTemplate", bd);
+
+		// Simulate a JDK dynamic AOP proxy (as created for proxyTargetClass=false)
+		// which only exposes the raw ProxiedTemplate interface, erasing the
+		// generic type information that is available on the target class.
+		Object proxy = Proxy.newProxyInstance(getClass().getClassLoader(),
+				new Class<?>[] {ProxiedTemplate.class}, (target, method, args) -> null);
+		lbf.registerSingleton("proxiedTemplate", proxy);
+
+		ProxiedTemplate<String> template = lbf.getBean("proxiedTemplate", new ParameterizedTypeReference<>() {});
+		assertThat(template).isSameAs(proxy);
 	}
 
 	@Test
@@ -3239,6 +3284,53 @@ class DefaultListableBeanFactoryTests {
 		assertThat(lbf.getBeanNamesForType(Object.class)).containsExactly(StringUtils.addStringToArray(allBeanNames, "bd3"));
 	}
 
+	@Test
+	void cachesBeanNamesForGenericType() {
+		lbf.registerBeanDefinition("cityRepository", new RootBeanDefinition(CityRepository.class));
+		lbf.freezeConfiguration();
+
+		ResolvableType repositoryType = ResolvableType.forClassWithGenerics(Repository.class, City.class, Long.class);
+		String[] beanNames = lbf.getBeanNamesForType(repositoryType);
+
+		assertThat(lbf.getBeanNamesForType(repositoryType)).isSameAs(beanNames);
+
+		lbf.registerSingleton("testBean", new TestBean());
+		assertThat(lbf.getBeanNamesForType(repositoryType)).isSameAs(beanNames);
+
+		lbf.registerSingleton("anotherCityRepository", new CityRepository());
+		assertThat(lbf.getBeanNamesForType(repositoryType)).containsExactly("cityRepository", "anotherCityRepository")
+				.isNotSameAs(beanNames);
+	}
+
+	@Test
+	void cachesSingletonBeanNamesForGenericType() {
+		RootBeanDefinition beanDefinition = new RootBeanDefinition(CityRepository.class);
+		beanDefinition.setScope(BeanDefinition.SCOPE_PROTOTYPE);
+		lbf.registerBeanDefinition("cityRepository", beanDefinition);
+		lbf.freezeConfiguration();
+
+		ResolvableType repositoryType = ResolvableType.forClassWithGenerics(Repository.class, City.class, Long.class);
+		String[] beanNames = lbf.getBeanNamesForType(repositoryType, false, true);
+
+		assertThat(lbf.getBeanNamesForType(repositoryType, false, true)).isSameAs(beanNames);
+
+		lbf.registerSingleton("anotherCityRepository", new CityRepository());
+		assertThat(lbf.getBeanNamesForType(repositoryType, false, true)).containsExactly("anotherCityRepository")
+				.isNotSameAs(beanNames);
+	}
+
+	@Test
+	void cachesBeanNamesForRecursiveGenericType() {
+		lbf.registerBeanDefinition("recursive", new RootBeanDefinition(RecursiveImpl.class));
+		lbf.freezeConfiguration();
+
+		ResolvableType recursiveType = ResolvableType.forClass(Recursive.class);
+		String[] beanNames = lbf.getBeanNamesForType(recursiveType);
+
+		assertThat(beanNames).containsExactly("recursive");
+		assertThat(lbf.getBeanNamesForType(recursiveType)).isSameAs(beanNames);
+	}
+
 
 	private int registerBeanDefinitions(Properties p) {
 		return registerBeanDefinitions(p, null);
@@ -3543,6 +3635,13 @@ class DefaultListableBeanFactoryTests {
 	public record City(String name) {}
 
 	public static class CityRepository implements Repository<City, Long> {}
+
+
+	public interface Recursive<T extends Recursive<T>> {
+	}
+
+	public static class RecursiveImpl implements Recursive<RecursiveImpl> {
+	}
 
 
 	public static class LazyInitFactory implements FactoryBean<Object> {
@@ -3870,6 +3969,21 @@ class DefaultListableBeanFactoryTests {
 		public Class<?> getObjectType() {
 			return TestBean.class;
 		}
+	}
+
+	private static class Template<T> {
+	}
+
+	private static class StringTemplate extends Template<String> {
+	}
+
+	private static class NumberTemplate extends Template<Number> {
+	}
+
+	private interface ProxiedTemplate<T> {
+	}
+
+	private static class ProxiedStringTemplate implements ProxiedTemplate<String> {
 	}
 
 }

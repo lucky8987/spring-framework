@@ -478,14 +478,14 @@ public class AntPathMatcher implements PathMatcher {
 
 	/**
 	 * Given a pattern and a full path, determine the pattern-mapped part. <p>For example: <ul>
-	 * <li>'{@code /docs/cvs/commit.html}' and '{@code /docs/cvs/commit.html} &rarr; ''</li>
-	 * <li>'{@code /docs/*}' and '{@code /docs/cvs/commit} &rarr; '{@code cvs/commit}'</li>
-	 * <li>'{@code /docs/cvs/*.html}' and '{@code /docs/cvs/commit.html} &rarr; '{@code commit.html}'</li>
-	 * <li>'{@code /docs/**}' and '{@code /docs/cvs/commit} &rarr; '{@code cvs/commit}'</li>
-	 * <li>'{@code /docs/**\/*.html}' and '{@code /docs/cvs/commit.html} &rarr; '{@code cvs/commit.html}'</li>
-	 * <li>'{@code /*.html}' and '{@code /docs/cvs/commit.html} &rarr; '{@code docs/cvs/commit.html}'</li>
-	 * <li>'{@code *.html}' and '{@code /docs/cvs/commit.html} &rarr; '{@code /docs/cvs/commit.html}'</li>
-	 * <li>'{@code *}' and '{@code /docs/cvs/commit.html} &rarr; '{@code /docs/cvs/commit.html}'</li> </ul>
+	 * <li>'{@code /docs/cvs/commit.html}' and '{@code /docs/cvs/commit.html}' &rarr; ''</li>
+	 * <li>'{@code /docs/*}' and '{@code /docs/cvs/commit}' &rarr; '{@code cvs/commit}'</li>
+	 * <li>'{@code /docs/cvs/*.html}' and '{@code /docs/cvs/commit.html}' &rarr; '{@code commit.html}'</li>
+	 * <li>'{@code /docs/**}' and '{@code /docs/cvs/commit}' &rarr; '{@code cvs/commit}'</li>
+	 * <li>'{@code /docs/**\/*.html}' and '{@code /docs/cvs/commit.html}' &rarr; '{@code cvs/commit.html}'</li>
+	 * <li>'{@code /*.html}' and '{@code /docs/cvs/commit.html}' &rarr; '{@code docs/cvs/commit.html}'</li>
+	 * <li>'{@code *.html}' and '{@code /docs/cvs/commit.html}' &rarr; '{@code /docs/cvs/commit.html}'</li>
+	 * <li>'{@code *}' and '{@code /docs/cvs/commit.html}' &rarr; '{@code /docs/cvs/commit.html}'</li> </ul>
 	 * <p>Assumes that {@link #match} returns {@code true} for '{@code pattern}' and '{@code path}', but
 	 * does <strong>not</strong> enforce this.
 	 */
@@ -723,7 +723,7 @@ public class AntPathMatcher implements PathMatcher {
 				return this.caseSensitive ? this.rawPattern.equals(str) : this.rawPattern.equalsIgnoreCase(str);
 			}
 			else if (this.pattern != null) {
-				Matcher matcher = this.pattern.matcher(str);
+				Matcher matcher = this.pattern.matcher(new MaxAttemptsCharSequence(str));
 				if (matcher.matches()) {
 					if (uriTemplateVariables != null) {
 						if (this.variableNames.size() != matcher.groupCount()) {
@@ -748,6 +748,60 @@ public class AntPathMatcher implements PathMatcher {
 			return false;
 		}
 
+
+		private static class MaxAttemptsCharSequence implements CharSequence {
+
+			private static final int MAX_ATTEMPTS = 1_000_000;
+
+			private final String text;
+
+			private final Counter counter;
+
+
+			MaxAttemptsCharSequence(String text) {
+				this(text, new Counter());
+			}
+
+			private MaxAttemptsCharSequence(String text, Counter counter) {
+				this.text = text;
+				this.counter = counter;
+			}
+
+
+			@Override
+			public int length() {
+				return this.text.length();
+			}
+
+			@Override
+			public char charAt(int index) {
+				if (this.counter.value++ >= MAX_ATTEMPTS) {
+					throw new IllegalStateException(
+							"Too many character access attempts encountered during pattern matching");
+				}
+				return this.text.charAt(index);
+			}
+
+			@Override
+			public boolean isEmpty() {
+				return this.text.isEmpty();
+			}
+
+			@Override
+			public CharSequence subSequence(int start, int end) {
+				return new MaxAttemptsCharSequence(this.text.substring(start, end), this.counter);
+			}
+
+			@Override
+			public String toString() {
+				return this.text;
+			}
+
+
+			private static class Counter {
+				private int value;
+			}
+		}
 	}
 
 
@@ -853,7 +907,6 @@ public class AntPathMatcher implements PathMatcher {
 		 * occurrences of "*", "**", and "{" pattern elements.
 		 */
 		private static class PatternInfo {
-
 
 			private final @Nullable String pattern;
 

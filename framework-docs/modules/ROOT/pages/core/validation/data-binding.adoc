@@ -2,13 +2,13 @@
 = Data Binding
 
 Data binding is useful for binding user input to a target object where user input is a map
-with property paths as keys, following xref:data-binding-conventions[JavaBeans conventions].
+with property paths as keys, following <<data-binding-conventions,JavaBeans conventions>>.
 `DataBinder` is the main class that supports this, and it provides two ways to bind user
 input:
 
-- xref:data-binding-constructor-binding[Constructor binding] - bind user input to a
+- <<data-binding-constructor-binding,Constructor binding>> - bind user input to a
   public data constructor, looking up constructor argument values in the user input.
-- xref:data-binding-property-binding[Property binding] - bind user input to setters,
+- <<data-binding-property-binding,Property binding>> - bind user input to setters,
   matching keys from the user input to properties of the target object structure.
 
 You can apply both constructor and property binding or only one.
@@ -32,7 +32,7 @@ WebFlux support a custom name mapping through the `@BindParam` annotation on con
 parameters or fields if present. If necessary, you can also configure a `NameResolver` on
 `DataBinder` to customize the argument name to use.
 
-xref:data-binding-conventions[Type conversion] is applied as needed to convert user input.
+<<data-binding-conventions,Type conversion>> is applied as needed to convert user input.
 If the constructor parameter is an object, it is constructed recursively in the same
 manner, but through a nested property path. That means constructor binding creates both
 the target object and any objects it contains.
@@ -61,7 +61,8 @@ corresponding implementation (`BeanWrapperImpl`). As quoted from the javadoc, th
 `BeanWrapper` offers functionality to set and get property values (individually or in
 bulk), get property descriptors, and query properties to determine if they are
 readable or writable. Also, the `BeanWrapper` offers support for nested properties,
-enabling the setting of properties on sub-properties to an unlimited depth. The
+enabling the setting of properties on sub-properties up to a
+<<data-binding-nested-path-depth,configurable maximum nesting depth>>. The
 `BeanWrapper` also supports the ability to add standard JavaBeans `PropertyChangeListeners`
 and `VetoableChangeListeners`, without the need for supporting code in the target class.
 Last but not least, the `BeanWrapper` provides support for setting indexed properties.
@@ -103,7 +104,7 @@ details. The below table shows some examples of these conventions:
 (This next section is not vitally important to you if you do not plan to work with
 the `BeanWrapper` directly. If you use only the `DataBinder` and the `BeanFactory`
 and their default implementations, you should skip ahead to the
-xref:core/validation/data-binding.adoc#data-binding-conversion[section on `PropertyEditors`].)
+<<data-binding-conversion,section on `PropertyEditors`>>.)
 
 The following two example classes use the `BeanWrapper` to get and set
 properties:
@@ -236,6 +237,48 @@ Kotlin::
 ======
 
 
+[[data-binding-nested-path-depth]]
+=== Maximum Nesting Depth for Nested Property Paths
+
+A nested property path such as `managingDirector.salary` is resolved recursively, one
+level per nested property. The nesting depth of a property path therefore corresponds to
+the number of intermediate properties that must be traversed in order to reach the final
+property -- for example, `address.country.name` has a nesting depth of 2, since the
+`address` and `country` properties must be traversed in order to reach the `name`
+property.
+
+The nesting depth of a property path cannot exceed 100 by default; however, the
+`maxNestedPathDepth` value is configurable. You can specify a custom value via
+`setMaxNestedPathDepth(...)` on a `ConfigurablePropertyAccessor` such as
+`BeanWrapperImpl`, or on a `DataBinder` -- and therefore also on a `WebDataBinder`, for
+example within an `@InitBinder` method. If a property path exceeds the configured limit,
+an `InvalidPropertyException` is thrown. Specify `0` to disable support for nested
+property paths altogether, while continuing to allow simple, indexed, and mapped property
+access -- for example, `name`, `accounts[2]`, or `accounts[KEY]`.
+
+Note that this limit applies to property binding as well as to
+<<data-binding-constructor-binding,constructor binding>> via `DataBinder.construct`,
+since a constructor parameter which is itself an object is constructed recursively
+through a nested property path.
+
+[NOTE]
+====
+Without such a limit, a sufficiently deeply nested property path can drive the recursive
+resolution of nested property paths to exhaust the current thread's call stack, resulting
+in a `StackOverflowError` instead of a descriptive exception.
+
+The `maxNestedPathDepth` limit improves diagnostics for that common case by converting
+it into a clear `InvalidPropertyException`; however, it is not a guaranteed defense against
+`StackOverflowError` under every possible JVM thread stack size configuration, since the
+amount of stack space consumed per level of nesting depends on the JVM, its JIT
+compilation state, and the platform.
+
+When binding untrusted input, you should additionally constrain binding to the expected
+input as described in
+xref:web/webmvc/mvc-data-binding.adoc#mvc-data-binding-design[Model Design].
+====
+
+
 [[data-binding-conversion]]
 == ``PropertyEditor``s
 
@@ -347,10 +390,10 @@ recognized and used as the `PropertyEditor` for `Something`-typed properties.
 [literal,subs="verbatim,quotes"]
 ----
 com
-  chank
-    pop
-      Something
-      SomethingEditor // the PropertyEditor for the Something class
+└── example
+    └── things
+        ├── *Something*
+        └── *SomethingEditor* // the PropertyEditor for the Something class
 ----
 
 Note that you can also use the standard `BeanInfo` JavaBeans mechanism here as well
@@ -362,10 +405,10 @@ following example uses the `BeanInfo` mechanism to explicitly register one or mo
 [literal,subs="verbatim,quotes"]
 ----
 com
-  chank
-    pop
-      Something
-      SomethingBeanInfo // the BeanInfo for the Something class
+└── example
+    └── things
+        ├── *Something*
+        └── *SomethingBeanInfo* // the BeanInfo for the Something class
 ----
 
 The following Java source code for the referenced `SomethingBeanInfo` class
@@ -447,7 +490,7 @@ where it can be automatically detected and applied.
 Note that all bean factories and application contexts automatically use a number of
 built-in property editors, through their use of a `BeanWrapper` to
 handle property conversions. The standard property editors that the `BeanWrapper`
-registers are listed in the xref:core/validation/data-binding.adoc#data-binding-conversion[previous section].
+registers are listed in the <<data-binding-conversion,previous section>>.
 Additionally, ``ApplicationContext``s also override or add additional editors to handle
 resource lookups in a manner appropriate to the specific application context type.
 
@@ -576,7 +619,7 @@ You can write a corresponding registrar and reuse it in each case.
 `PropertyEditorRegistry`, an interface that is implemented by the Spring `BeanWrapper`
 (and `DataBinder`). `PropertyEditorRegistrar` instances are particularly convenient
 when used in conjunction with `CustomEditorConfigurer` (described
-xref:core/validation/data-binding.adoc#data-binding-conversion-customeditor-registration[here]), which exposes a property
+<<data-binding-conversion-customeditor-registration,here>>), which exposes a property
 called `setPropertyEditorRegistrars(..)`. `PropertyEditorRegistrar` instances added
 to a `CustomEditorConfigurer` in this fashion can easily be shared with `DataBinder` and
 Spring MVC controllers. Furthermore, it avoids the need for synchronization on custom

@@ -44,7 +44,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * A {@link ConcurrentHashMap} variant that uses {@link ReferenceType#SOFT soft} or
- * {@linkplain ReferenceType#WEAK weak} references for both {@code keys} and {@code values}.
+ * {@linkplain ReferenceType#WEAK weak} references for its entries.
  *
  * <p>This class can be used as an alternative to
  * {@code Collections.synchronizedMap(new WeakHashMap<K, Reference<V>>())} in order to
@@ -56,6 +56,16 @@ import org.jspecify.annotations.Nullable;
  * placed into the map will be subsequently available. The garbage collector may discard
  * references at any time, so it may appear that an unknown thread is silently removing
  * entries.
+ *
+ * <p>Note that the soft or weak references are applied to the internal entries of the
+ * map, not to the keys and values themselves: each entry holds strong references to its
+ * key and value, whereas the map only holds a soft or weak reference to the entry.
+ * Consequently, an entry may be discarded even if its key and value are still strongly
+ * reachable from elsewhere. In contrast to {@link java.util.WeakHashMap}, the lifetime
+ * of an entry is therefore not tied to the reachability of its key. In particular, with
+ * {@link ReferenceType#WEAK weak} references, entries are likely to be removed on the
+ * next garbage collection. This makes the map suitable for caches whose entries can be
+ * recomputed on demand, but not for associating data with a key for the key's lifetime.
  *
  * <p>If not explicitly specified, this implementation will use
  * {@linkplain SoftReference soft entry references}.
@@ -371,6 +381,13 @@ public class ConcurrentReferenceHashMap<K, V> extends AbstractMap<K, V> implemen
 
 	@Override
 	public @Nullable V computeIfAbsent(@Nullable K key, Function<@Nullable ? super K, @Nullable ? extends V> mappingFunction) {
+		// Avoid locking if entry is present
+		Reference<K, V> ref = getReference(key, Restructure.NEVER);
+		Entry<K, V> entry = (ref != null ? ref.get() : null);
+		if (entry != null) {
+			return entry.getValue();
+		}
+
 		return doTask(key, new Task<V>(TaskOption.RESTRUCTURE_BEFORE, TaskOption.RESIZE) {
 			@Override
 			protected @Nullable V execute(@Nullable Reference<K, V> ref, @Nullable Entry<K, V> entry, @Nullable Entries<V> entries) {
@@ -390,6 +407,13 @@ public class ConcurrentReferenceHashMap<K, V> extends AbstractMap<K, V> implemen
 
 	@Override
 	public @Nullable V computeIfPresent(@Nullable K key, BiFunction<@Nullable ? super K, @Nullable ? super V, @Nullable ? extends V> remappingFunction) {
+		// Avoid locking if entry is absent
+		Reference<K, V> ref = getReference(key, Restructure.NEVER);
+		Entry<K, V> entry = (ref != null ? ref.get() : null);
+		if (entry == null) {
+			return null;
+		}
+
 		return doTask(key, new Task<V>(TaskOption.RESTRUCTURE_BEFORE, TaskOption.RESIZE) {
 			@Override
 			protected @Nullable V execute(@Nullable Reference<K, V> ref, @Nullable Entry<K, V> entry, @Nullable Entries<V> entries) {
@@ -485,10 +509,17 @@ public class ConcurrentReferenceHashMap<K, V> extends AbstractMap<K, V> implemen
 	}
 
 	/**
-	 * Remove any entries that have been garbage collected and are no longer referenced.
-	 * Under normal circumstances garbage collected entries are automatically purged as
-	 * items are added or removed from the Map. This method can be used to force a purge,
-	 * and is useful when the Map is read frequently but updated less often.
+	 * Remove any entries that have been garbage-collected and are no longer referenced.
+	 * Note that this call implies segment locking and can lead to thread contention.
+	 * <p>Under normal circumstances, garbage-collected entries are automatically purged as
+	 * items are added or removed from the Map. This method can be used to force a purge
+	 * which is useful when the Map is read frequently but hardly ever updated anymore.
+	 * <p>Note that it may be preferable to simply {@link #clear() clear} the entire cache at
+	 * certain points of the lifecycle, not just dropping unreferenced entries but even the
+	 * entire cache content: assuming that most entries in the cache won't be needed anymore
+	 * after certain processing phases, therefore rather rebuilding the cache going forward.
+	 * @since 4.1.1
+	 * @see #clear()
 	 */
 	public void purgeUnreferencedEntries() {
 		for (Segment segment : this.segments) {
@@ -578,10 +609,10 @@ public class ConcurrentReferenceHashMap<K, V> extends AbstractMap<K, V> implemen
 	 */
 	public enum ReferenceType {
 
-		/** Use {@link SoftReference SoftReferences}. */
+		/** Use {@link SoftReference SoftReferences} for map entries. */
 		SOFT,
 
-		/** Use {@link WeakReference WeakReferences}. */
+		/** Use {@link WeakReference WeakReferences} for map entries. */
 		WEAK
 	}
 
@@ -702,7 +733,7 @@ public class ConcurrentReferenceHashMap<K, V> extends AbstractMap<K, V> implemen
 			int currCount = this.count.get();
 			boolean needsResize = allowResize && (currCount > 0 && currCount >= this.resizeThreshold);
 			Reference<K, V> ref = this.referenceManager.pollForPurge();
-			if (ref != null || (needsResize)) {
+			if (ref != null || needsResize) {
 				restructure(allowResize, ref);
 			}
 		}

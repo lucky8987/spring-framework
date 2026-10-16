@@ -18,6 +18,8 @@ package org.springframework.core
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mockStatic
+import org.mockito.stubbing.Answer
 import java.lang.reflect.Method
 import java.lang.reflect.TypeVariable
 import kotlin.coroutines.Continuation
@@ -110,8 +112,32 @@ class MethodParameterKotlinTests {
 		assertThat(returnGenericParameterType("suspendFun7")).isInstanceOf(TypeVariable::class.java)
 		assertThat(returnGenericParameterTypeBoundName("suspendFun7")).isEqualTo("org.springframework.core.Consumer<? super java.lang.Number>")
 
-		assertThat(returnParameterType("suspendFun8")).isEqualTo(Object::class.java)
-		assertThat(returnGenericParameterType("suspendFun8")).isEqualTo(Object::class.java)
+		assertThat(returnParameterType("suspendFun8")).isEqualTo(Any::class.java)
+		assertThat(returnGenericParameterType("suspendFun8")).isEqualTo(Any::class.java)
+	}
+
+	@Test
+	fun `Regular function return type`() {
+		assertThat(returnParameterType("regularFun")).isEqualTo(Producer::class.java)
+		assertThat(returnGenericParameterTypeName("regularFun")).isEqualTo("org.springframework.core.Producer<java.lang.Number>")
+	}
+
+	@Test
+	fun `Regular function return type does not use Kotlin reflection`() {
+		val methodParameter = returnMethodParameter("regularFun")
+		mockStatic(Class.forName("kotlin.reflect.jvm.ReflectJvmMapping"), Answer<Any> {
+			throw AssertionError("Kotlin reflection should not be used for regular functions")
+		}).use {
+			assertThat(methodParameter.parameterType).isEqualTo(Producer::class.java)
+			assertThat(methodParameter.genericParameterType.typeName)
+				.isEqualTo("org.springframework.core.Producer<java.lang.Number>")
+		}
+	}
+
+	@Test
+	fun `Regular function with Continuation parameter return type`() {
+		assertThat(returnParameterType("regularFunWithContinuation")).isEqualTo(Producer::class.java)
+		assertThat(returnGenericParameterTypeName("regularFunWithContinuation")).isEqualTo("org.springframework.core.Producer<java.lang.Number>")
 	}
 
 	@Test
@@ -186,6 +212,12 @@ class MethodParameterKotlinTests {
 
 	@Suppress("unused", "unused_parameter")
 	suspend fun suspendFun8(p1: String): Any? = TODO()
+
+	@Suppress("unused", "unused_parameter")
+	fun regularFun(p1: String): Producer<Number> = TODO()
+
+	@Suppress("unused", "unused_parameter")
+	fun regularFunWithContinuation(p1: String, continuation: Continuation<Number>): Producer<Number> = TODO()
 }
 
 interface Producer<out T>

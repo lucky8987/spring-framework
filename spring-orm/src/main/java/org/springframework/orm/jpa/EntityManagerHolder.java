@@ -39,6 +39,8 @@ public class EntityManagerHolder extends ResourceHolderSupport {
 
 	protected @Nullable EntityManager entityManager;
 
+	protected @Nullable Object entityAgent;
+
 	private boolean transactionActive;
 
 	private @Nullable SavepointManager savepointManager;
@@ -48,10 +50,42 @@ public class EntityManagerHolder extends ResourceHolderSupport {
 		this.entityManager = entityManager;
 	}
 
+	EntityManagerHolder(@Nullable Object entityAgent) {
+		this.entityAgent = entityAgent;
+	}
+
+	protected EntityManagerHolder(EntityManagerHolder original) {
+		this.entityManager = original.entityManager;
+		this.entityAgent = original.entityAgent;
+		this.transactionActive = original.transactionActive;
+		this.savepointManager = original.savepointManager;
+	}
+
+
+	void setEntityManager(EntityManager entityManager) {
+		this.entityManager = entityManager;
+	}
 
 	public EntityManager getEntityManager() {
 		Assert.state(this.entityManager != null, "No EntityManager available");
 		return this.entityManager;
+	}
+
+	void setEntityAgent(Object entityAgent) {
+		this.entityAgent = entityAgent;
+	}
+
+	Object getEntityAgent() {
+		Assert.state(this.entityAgent != null, "No EntityAgent available");
+		return this.entityAgent;
+	}
+
+	boolean hasEntityManager() {
+		return (this.entityManager != null);
+	}
+
+	boolean hasEntityAgent() {
+		return (this.entityAgent != null);
 	}
 
 	protected void setTransactionActive(boolean transactionActive) {
@@ -79,7 +113,10 @@ public class EntityManagerHolder extends ResourceHolderSupport {
 	}
 
 	protected void closeAll() {
-		EntityManagerFactoryUtils.closeEntityManager(this.entityManager);
+		EntityManagerFactoryUtils.closeEntityHandler(this.entityManager);
+		EntityManagerFactoryUtils.closeEntityHandler(this.entityAgent);
+		this.entityManager = null;
+		this.entityAgent = null;
 	}
 
 }

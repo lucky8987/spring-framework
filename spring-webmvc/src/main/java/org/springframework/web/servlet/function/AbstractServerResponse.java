@@ -51,14 +51,15 @@ abstract class AbstractServerResponse extends ErrorHandlingServerResponse {
 
 	private final MultiValueMap<String, Cookie> cookies;
 
+
 	protected AbstractServerResponse(
 			HttpStatusCode statusCode, HttpHeaders headers, MultiValueMap<String, Cookie> cookies) {
 
 		this.statusCode = statusCode;
 		this.headers = HttpHeaders.readOnlyHttpHeaders(headers);
-		this.cookies =
-				CollectionUtils.unmodifiableMultiValueMap(new LinkedMultiValueMap<>(cookies));
+		this.cookies = CollectionUtils.unmodifiableMultiValueMap(new LinkedMultiValueMap<>(cookies));
 	}
+
 
 	@Override
 	public final HttpStatusCode statusCode() {
@@ -110,14 +111,10 @@ abstract class AbstractServerResponse extends ErrorHandlingServerResponse {
 				servletResponse.addHeader(headerName, headerValue);
 			}
 		});
-		// HttpServletResponse exposes some headers as properties: we should include those if not already present
-		if (servletResponse.getContentType() == null && this.headers.getContentType() != null) {
-			servletResponse.setContentType(this.headers.getContentType().toString());
-		}
-		if (servletResponse.getCharacterEncoding() == null &&
-				this.headers.getContentType() != null &&
-				this.headers.getContentType().getCharset() != null) {
-			servletResponse.setCharacterEncoding(this.headers.getContentType().getCharset().name());
+
+		long contentLength = this.headers.getContentLength();
+		if (contentLength != -1) {
+			servletResponse.setContentLengthLong(contentLength);
 		}
 	}
 

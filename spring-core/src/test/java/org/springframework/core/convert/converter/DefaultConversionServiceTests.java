@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.AbstractList;
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -58,6 +60,7 @@ import org.springframework.core.convert.ConverterNotFoundException;
 import org.springframework.core.convert.TypeDescriptor;
 import org.springframework.core.convert.support.DefaultConversionService;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.unit.DataSize;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -75,6 +78,8 @@ import static org.assertj.core.api.Assertions.entry;
  * @author Juergen Hoeller
  * @author Stephane Nicoll
  * @author Sam Brannen
+ * @author YeongJae Min
+ * @author Yanming Zhou
  */
 class DefaultConversionServiceTests {
 
@@ -229,6 +234,53 @@ class DefaultConversionServiceTests {
 	@Test
 	void stringToNumberEmptyString() {
 		assertThat(conversionService.convert("", Number.class)).isNull();
+	}
+
+	@Test  // gh-36830
+	void stringToDataSizeWithInvalidString() {
+		assertThatExceptionOfType(ConversionFailedException.class)
+				.isThrownBy(() -> conversionService.convert("10WB", DataSize.class))
+				.havingRootCause()
+					.isInstanceOf(IllegalArgumentException.class)
+					.withMessage("Unknown data unit suffix 'WB'");
+	}
+
+	@Test  // gh-36830
+	void stringToDataSizeWithEmptyString() {
+		assertThat(conversionService.convert("", DataSize.class)).isNull();
+	}
+
+	@Test  // gh-36830
+	void stringToDataSize() {
+		assertThat(conversionService.convert("10", DataSize.class)).isEqualTo(DataSize.ofBytes(10));
+		assertThat(conversionService.convert("10B", DataSize.class)).isEqualTo(DataSize.ofBytes(10));
+		assertThat(conversionService.convert("+10KB", DataSize.class)).isEqualTo(DataSize.ofKilobytes(10));
+		assertThat(conversionService.convert("-10MB", DataSize.class)).isEqualTo(DataSize.ofMegabytes(-10));
+	}
+
+	@Test  // gh-36830
+	void numberToDataSizeConversionRejectsNumberWithFractionalPart() {
+		assertThatExceptionOfType(ConversionFailedException.class)
+				.isThrownBy(() -> conversionService.convert(-10.5, DataSize.class))
+				.havingRootCause()
+					.isInstanceOf(IllegalArgumentException.class)
+					.withMessage("'-10.5' is not a valid data size");
+		assertThatExceptionOfType(ConversionFailedException.class)
+				.isThrownBy(() -> conversionService.convert(new BigDecimal("10.5"), DataSize.class))
+				.havingRootCause()
+					.isInstanceOf(IllegalArgumentException.class)
+					.withMessage("'10.5' is not a valid data size");
+	}
+
+	@Test  // gh-36830
+	void numberToDataSize() {
+		assertThat(conversionService.convert(10, DataSize.class)).isEqualTo(DataSize.ofBytes(10));
+		assertThat(conversionService.convert(10.0, DataSize.class)).isEqualTo(DataSize.ofBytes(10));
+		assertThat(conversionService.convert(-10L, DataSize.class)).isEqualTo(DataSize.ofBytes(-10));
+		assertThat(conversionService.convert(-10.0, DataSize.class)).isEqualTo(DataSize.ofBytes(-10));
+		assertThat(conversionService.convert(new BigDecimal("10"), DataSize.class)).isEqualTo(DataSize.ofBytes(10));
+		assertThat(conversionService.convert(new BigDecimal("10.0"), DataSize.class)).isEqualTo(DataSize.ofBytes(10));
+		assertThat(conversionService.convert(new AtomicInteger(1000), DataSize.class)).isEqualTo(DataSize.ofBytes(1000));
 	}
 
 	@Test
@@ -961,6 +1013,72 @@ class DefaultConversionServiceTests {
 
 		private static final TypeDescriptor rawOptionalType = TypeDescriptor.valueOf(Optional.class);
 
+		@SuppressWarnings("unused")
+		private Optional<?> unboundedWildcardOptional;
+
+		@SuppressWarnings("unused")
+		private Optional<? extends Number> boundedWildcardOptional;
+
+
+		@Test  // raw Optional: no element type information, so the converter remains permissive
+		void canConvertRawOptionalRemainsPermissive() {
+			assertThat(conversionService.canConvert(rawOptionalType, TypeDescriptor.valueOf(LocalDate.class))).isTrue();
+		}
+
+		@Test  // Optional<?>: the Object upper bound resolves to null, so the converter remains permissive
+		void canConvertOptionalWithUnboundedWildcardRemainsPermissive() throws Exception {
+			TypeDescriptor unboundedWildcardOptionalType = optionalTypeFor("unboundedWildcardOptional");
+			assertThat(conversionService.canConvert(unboundedWildcardOptionalType, TypeDescriptor.valueOf(LocalDate.class))).isTrue();
+		}
+
+		@Test  // Optional<T> with an unresolved type variable also remains permissive
+		void canConvertOptionalWithUnresolvedTypeVariableRemainsPermissive() throws Exception {
+			TypeDescriptor typeVariableOptionalType =
+					new TypeDescriptor(TypeVariableHolder.class.getDeclaredField("typeVariableOptional"));
+			assertThat(conversionService.canConvert(typeVariableOptionalType, TypeDescriptor.valueOf(LocalDate.class))).isTrue();
+		}
+
+		@Test  // Optional<? extends Number>: applicability is decided against the Number upper bound
+		void canConvertOptionalWithBoundedWildcardReflectsUpperBound() throws Exception {
+			TypeDescriptor boundedWildcardOptionalType = optionalTypeFor("boundedWildcardOptional");
+			TypeDescriptor localDateType = TypeDescriptor.valueOf(LocalDate.class);
+
+			assertThat(conversionService.canConvert(boundedWildcardOptionalType, TypeDescriptor.valueOf(String.class))).isTrue();
+			assertThat(conversionService.convert(Optional.of(42), boundedWildcardOptionalType,
+					TypeDescriptor.valueOf(String.class))).isEqualTo("42");
+			assertThat(conversionService.canConvert(boundedWildcardOptionalType, localDateType)).isFalse();
+			assertThatExceptionOfType(ConverterNotFoundException.class)
+					.isThrownBy(() -> conversionService.convert(Optional.of(42), boundedWildcardOptionalType, localDateType));
+		}
+
+		private static TypeDescriptor optionalTypeFor(String fieldName) throws Exception {
+			return new TypeDescriptor(OptionalConversionTests.class.getDeclaredField(fieldName));
+		}
+
+		@SuppressWarnings("unused")
+		private static class TypeVariableHolder<T> {
+
+			Optional<T> typeVariableOptional;
+		}
+
+		@Test
+		void canConvertOptionalToObjectReflectsContainedElementType() {
+			TypeDescriptor integerOptionalType =
+					new TypeDescriptor(ResolvableType.forClassWithGenerics(Optional.class, Integer.class), null, null);
+			TypeDescriptor localDateType = TypeDescriptor.valueOf(LocalDate.class);
+
+			// Integer -> String is convertible
+			assertThat(conversionService.canConvert(integerOptionalType, TypeDescriptor.valueOf(String.class))).isTrue();
+
+			// Integer -> LocalDate is not convertible, so canConvert must not over-report...
+			assertThat(conversionService.canConvert(integerOptionalType, localDateType)).isFalse();
+			// ...and must stay consistent with convert(): no converter is selected
+			assertThatExceptionOfType(ConverterNotFoundException.class)
+					.isThrownBy(() -> conversionService.convert(Optional.of(42), integerOptionalType, localDateType));
+
+			// An Optional with an unknown element type remains permissive
+			assertThat(conversionService.canConvert(rawOptionalType, localDateType)).isTrue();
+		}
 
 		@Test
 		@SuppressWarnings("unchecked")
@@ -969,7 +1087,7 @@ class DefaultConversionServiceTests {
 			MethodParameter parameter = new MethodParameter(method, 0);
 			TypeDescriptor descriptor = new TypeDescriptor(parameter);
 			Object actual = conversionService.convert("1,2,3", TypeDescriptor.valueOf(String.class), descriptor);
-			assertThat(((Optional<List<Integer>>) actual)).contains(List.of(1, 2, 3));
+			assertThat((Optional<List<Integer>>) actual).contains(List.of(1, 2, 3));
 		}
 
 		@Test
@@ -1195,7 +1313,7 @@ class DefaultConversionServiceTests {
 	}
 
 
-	public class ColorConverter implements Converter<String, Color> {
+	public static class ColorConverter implements Converter<String, Color> {
 
 		@Override
 		public Color convert(String source) {

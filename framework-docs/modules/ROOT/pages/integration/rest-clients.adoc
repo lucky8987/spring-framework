@@ -3,10 +3,10 @@
 
 The Spring Framework provides the following choices for making calls to REST endpoints:
 
-* xref:integration/rest-clients.adoc#rest-restclient[`RestClient`] -- synchronous client with a fluent API
-* xref:integration/rest-clients.adoc#rest-webclient[`WebClient`] -- non-blocking, reactive client with fluent API
-* xref:integration/rest-clients.adoc#rest-resttemplate[`RestTemplate`] -- synchronous client with template method API, now deprecated in favor of `RestClient`
-* xref:integration/rest-clients.adoc#rest-http-service-client[HTTP Service Clients] -- annotated interface backed by generated proxy
+* <<rest-restclient,`RestClient`>> -- synchronous client with a fluent API
+* <<rest-webclient,`WebClient`>> -- non-blocking, reactive client with fluent API
+* <<rest-resttemplate,`RestTemplate`>> -- synchronous client with template method API, now deprecated in favor of `RestClient`
+* <<rest-http-service-client,HTTP Service Clients>> -- annotated interface backed by generated proxy
 
 
 [[rest-restclient]]
@@ -15,6 +15,7 @@ The Spring Framework provides the following choices for making calls to REST end
 `RestClient` is a synchronous HTTP client that provides a fluent API to perform requests.
 It serves as an abstraction over HTTP libraries, and handles conversion of HTTP request and response content to and from higher level Java objects.
 
+[[rest-restclient.create]]
 === Create a `RestClient`
 
 `RestClient` has static `create` shortcut methods.
@@ -32,48 +33,7 @@ Once created, a `RestClient` is safe to use in multiple threads.
 
 The below shows how to create or build a `RestClient`:
 
-[tabs]
-======
-Java::
-+
-[source,java,indent=0,subs="verbatim"]
-----
-	RestClient defaultClient = RestClient.create();
-	
-	RestClient customClient = RestClient.builder()
-		.requestFactory(new HttpComponentsClientHttpRequestFactory())
-		.messageConverters(converters -> converters.add(new MyCustomMessageConverter()))
-		.baseUrl("https://example.com")
-		.defaultUriVariables(Map.of("variable", "foo"))
-		.defaultHeader("My-Header", "Foo")
-		.defaultCookie("My-Cookie", "Bar")
-		.defaultVersion("1.2")
-		.apiVersionInserter(ApiVersionInserter.fromHeader("API-Version").build())
-		.requestInterceptor(myCustomInterceptor)
-		.requestInitializer(myCustomInitializer)
-		.build();
-----
-
-Kotlin::
-+
-[source,kotlin,indent=0,subs="verbatim"]
-----
-	val defaultClient = RestClient.create()
-	
-	val customClient = RestClient.builder()
-		.requestFactory(HttpComponentsClientHttpRequestFactory())
-		.messageConverters { converters -> converters.add(MyCustomMessageConverter()) }
-		.baseUrl("https://example.com")
-		.defaultUriVariables(mapOf("variable" to "foo"))
-		.defaultHeader("My-Header", "Foo")
-		.defaultCookie("My-Cookie", "Bar")
-        .defaultVersion("1.2")
-        .apiVersionInserter(ApiVersionInserter.fromHeader("API-Version").build())
-		.requestInterceptor(myCustomInterceptor)
-		.requestInitializer(myCustomInitializer)
-		.build()
-----
-======
+include-code::./RestClientCreation[tag=snippet,indent=0]
 
 === Use the `RestClient`
 
@@ -390,47 +350,42 @@ xref:web/webmvc/message-converters.adoc#message-converters[See the supported HTT
 
 To serialize only a subset of the object properties, you can specify a {baeldung-blog}/jackson-json-view-annotation[Jackson JSON View], as the following example shows:
 
-[source,java,indent=0,subs="verbatim"]
-----
-	MappingJacksonValue value = new MappingJacksonValue(new User("eric", "7!jd#h23"));
-	value.setSerializationView(User.WithoutPasswordView.class);
-	
-	ResponseEntity<Void> response = restClient.post() // or RestTemplate.postForEntity
-		.contentType(APPLICATION_JSON)
-		.body(value)
-		.retrieve()
-		.toBodilessEntity();
-----
+include-code::./../restmessageconversion/RestClientMessageConversion[tag=jsonview,indent=0]
+
+==== URL encoded Forms
+
+URL encoded forms, using the `"application/x-www-form-urlencoded"` media type, are useful for sending String key/values over the wire.
+This is supported by the `FormHttpMessageConverter`, if the application uses a `MultiValueMap<String, String>` as source instance
+or a target type.
+
+For example:
+
+include-code::./../restmessageconversion/RestClientMessageConversion[tag=urlencodedform,indent=0]
+
 
 ==== Multipart
 
 To send multipart data, you need to provide a `MultiValueMap<String, Object>` whose values may be an `Object` for part content, a `Resource` for a file part, or an `HttpEntity` for part content with headers.
 For example:
 
-[source,java,indent=0,subs="verbatim"]
-----
-	MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
-	
-	parts.add("fieldPart", "fieldValue");
-	parts.add("filePart", new FileSystemResource("...logo.png"));
-	parts.add("jsonPart", new Person("Jason"));
-	
-	HttpHeaders headers = new HttpHeaders();
-	headers.setContentType(MediaType.APPLICATION_XML);
-	parts.add("xmlPart", new HttpEntity<>(myBean, headers));
-	
-	// send using RestClient.post or RestTemplate.postForEntity
-----
+include-code::./../restmessageconversion/RestClientMessageConversion[tag=multipartrequest,indent=0]
 
 In most cases, you do not have to specify the `Content-Type` for each part.
 The content type is determined automatically based on the `HttpMessageConverter` chosen to serialize it or, in the case of a `Resource`, based on the file extension.
 If necessary, you can explicitly provide the `MediaType` with an `HttpEntity` wrapper.
 
-Once the `MultiValueMap` is ready, you can use it as the body of a `POST` request, using `RestClient.post().body(parts)` (or `RestTemplate.postForObject`).
+The `Content-Type` is set to `multipart/form-data` by the `MultipartHttpMessageConverter`.
+As seen in the previous section, `MultiValueMap` types can also be used for URL encoded forms.
+It is preferable to explicitly set the media type in the `Content-Type` or `Accept` HTTP request headers to ensure that the expected
+message converter is used.
 
-If the `MultiValueMap` contains at least one non-`String` value, the `Content-Type` is set to `multipart/form-data` by the `FormHttpMessageConverter`.
-If the `MultiValueMap` has `String` values, the `Content-Type` defaults to `application/x-www-form-urlencoded`.
-If necessary the `Content-Type` may also be set explicitly.
+`RestClient` can also receive multipart responses.
+To decode a multipart response body, use a `ParameterizedTypeReference<MultiValueMap<String, Part>>`.
+The decoded map contains `Part` instances where `FormFieldPart` represents form field values
+and `FilePart` represents file parts with a `filename()` and a `transferTo()` method.
+
+include-code::./../restmessageconversion/RestClientMessageConversion[tag=multipartresponse,indent=0]
+
 
 [[rest-request-factories]]
 === Client Request Factories
@@ -466,7 +421,7 @@ synchronous, asynchronous, and streaming scenarios.
 * Non-blocking I/O
 * Reactive Streams back pressure
 * High concurrency with fewer hardware resources
-* Functional-style, fluent API that takes advantage of Java 8 lambdas
+* Functional-style, fluent API that takes advantage of lambda expressions
 * Synchronous and asynchronous interactions
 * Streaming up to or streaming down from a server
 
@@ -480,7 +435,7 @@ The `RestTemplate` provides a high-level API over HTTP client libraries in the f
 It exposes the following groups of overloaded methods:
 
 WARNING: As of Spring Framework 7.0, `RestTemplate` is deprecated in favor of `RestClient` and will be removed in a future version,
-please use the xref:integration/rest-clients.adoc#migrating-to-restclient["Migrating to RestClient"] guide.
+please use the <<migrating-to-restclient,"Migrating to RestClient">> guide.
 For asynchronous and streaming scenarios, consider the reactive xref:web/webflux-webclient.adoc[WebClient].
 
 [[rest-overview-of-resttemplate-methods-tbl]]
@@ -560,7 +515,7 @@ You can consider the following steps:
 2. Once all client requests go through `RestClient` instances, you can now work on replicating your existing
   `RestTemplate` instance creations by using `RestClient.Builder`. Because `RestTemplate` and `RestClient`
   share the same infrastructure, you can reuse custom `ClientHttpRequestFactory` or `ClientHttpRequestInterceptor`
-  in your setup. See xref:integration/rest-clients.adoc#rest-restclient[the `RestClient` builder API].
+  in your setup. See <<rest-restclient,the `RestClient` builder API>>.
 
 If no other library is available on the classpath, `RestClient` will choose the `JdkClientHttpRequestFactory`
 powered by the modern JDK `HttpClient`, whereas `RestTemplate` would pick the `SimpleClientHttpRequestFactory` that
@@ -874,7 +829,7 @@ The following table shows `RestClient` equivalents for `RestTemplate` methods.
 `RestClient` and `RestTemplate` instances share the same behavior when it comes to throwing exceptions
 (with the `RestClientException` type being at the top of the hierarchy).
 When `RestTemplate` consistently throws `HttpClientErrorException` for "4xx" response statues,
-`RestClient` allows for more flexibility with custom xref:integration/rest-clients.adoc#rest-http-service-client-exceptions["status handlers"].
+`RestClient` allows for more flexibility with custom <<rest-http-service-client-exceptions,"status handlers">>.
 
 
 [[rest-http-service-client]]
@@ -1179,7 +1134,7 @@ built-in decorators to suppress 404 exceptions and return a `ResponseEntity` wit
 [source,java,indent=0,subs="verbatim,quotes"]
 ----
 	// For RestClient
-	HttpServiceProxyFactory factory = HttpServiceProxyFactory.builderFor(restCqlientAdapter)
+	HttpServiceProxyFactory factory = HttpServiceProxyFactory.builderFor(restClientAdapter)
 			.exchangeAdapterDecorator(NotFoundRestClientAdapterDecorator::new)
 			.build();
 

@@ -22,7 +22,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -36,6 +35,7 @@ import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.lang.Contract;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.CollectionUtils;
 
 /**
  * Contextual descriptor about a type to convert from or to.
@@ -55,7 +55,7 @@ import org.springframework.util.ClassUtils;
 @SuppressWarnings("serial")
 public class TypeDescriptor implements Serializable {
 
-	private static final Map<Class<?>, TypeDescriptor> commonTypesCache = new HashMap<>(32);
+	private static final Map<Class<?>, TypeDescriptor> commonTypesCache;
 
 	private static final Class<?>[] CACHED_COMMON_TYPES = {
 			boolean.class, Boolean.class, byte.class, Byte.class, char.class, Character.class,
@@ -63,9 +63,11 @@ public class TypeDescriptor implements Serializable {
 			long.class, Long.class, short.class, Short.class, String.class, Object.class};
 
 	static {
+		Map<Class<?>, TypeDescriptor> commonTypes = CollectionUtils.newHashMap(CACHED_COMMON_TYPES.length);
 		for (Class<?> preCachedClass : CACHED_COMMON_TYPES) {
-			commonTypesCache.put(preCachedClass, valueOf(preCachedClass));
+			commonTypes.put(preCachedClass, new TypeDescriptor(ResolvableType.forClass(preCachedClass), null, null));
 		}
+		commonTypesCache = Map.copyOf(commonTypes);
 	}
 
 
@@ -541,7 +543,7 @@ public class TypeDescriptor implements Serializable {
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
 		for (Annotation ann : getAnnotations()) {
-			builder.append('@').append(getName(ann.annotationType())).append(' ');
+			builder.append('@').append(ClassUtils.getCanonicalName(ann.annotationType())).append(' ');
 		}
 		builder.append(getResolvableType());
 		return builder.toString();
@@ -631,7 +633,7 @@ public class TypeDescriptor implements Serializable {
 	 * Create a new type descriptor as an array of the specified type.
 	 * <p>For example to create a {@code Map<String,String>[]} use:
 	 * <pre class="code">
-	 * TypeDescriptor.array(TypeDescriptor.map(Map.class, TypeDescriptor.value(String.class), TypeDescriptor.value(String.class)));
+	 * TypeDescriptor.array(TypeDescriptor.map(Map.class, TypeDescriptor.valueOf(String.class), TypeDescriptor.valueOf(String.class)));
 	 * </pre>
 	 * @param elementTypeDescriptor the {@link TypeDescriptor} of the array element or {@code null}
 	 * @return an array {@link TypeDescriptor} or {@code null} if {@code elementTypeDescriptor} is {@code null}
@@ -724,11 +726,6 @@ public class TypeDescriptor implements Serializable {
 	 */
 	public static @Nullable TypeDescriptor nested(Property property, int nestingLevel) {
 		return new TypeDescriptor(property).nested(nestingLevel);
-	}
-
-	private static String getName(Class<?> clazz) {
-		String canonicalName = clazz.getCanonicalName();
-		return (canonicalName != null ? canonicalName : clazz.getName());
 	}
 
 

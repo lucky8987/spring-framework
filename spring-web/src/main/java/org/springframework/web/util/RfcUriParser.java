@@ -24,9 +24,10 @@ import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.log.LogDelegateFactory;
 import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
 
 /**
- * Parser for URI's based on RFC 3986 syntax.
+ * Parser for URIs based on RFC 3986 syntax.
  *
  * @author Rossen Stoyanchev
  * @since 6.2
@@ -94,32 +95,20 @@ abstract class RfcUriParser {
 			@Override
 			public void handleNext(InternalParser parser, char c, int i) {
 				switch (c) {
-					case '/':
-						parser.advanceTo(HOST_OR_PATH, i);
-						break;
-					case ';':
-					case '.':
-						parser.advanceTo(PATH, i);
-						break;
-					case '%':
-						parser.markPercentEncoding().advanceTo(PATH, i);
-						break;
-					case '?':
-						parser.advanceTo(QUERY, i + 1);  // empty path
-						break;
-					case '#':
-						parser.advanceTo(FRAGMENT, i + 1);  // empty path
-						break;
-					case '*':
-						parser.advanceTo(WILDCARD);
-						break;
-					default:
+					case '/' -> parser.advanceTo(HOST_OR_PATH, i);
+					case ';', '.' -> parser.advanceTo(PATH, i);
+					case '%' -> parser.markPercentEncoding().advanceTo(PATH, i);
+					case '?' -> parser.advanceTo(QUERY, i + 1);  // empty path
+					case '#' -> parser.advanceTo(FRAGMENT, i + 1);  // empty path
+					case '*' -> parser.advanceTo(WILDCARD);
+					default -> {
 						if (parser.hasScheme()) {
 							parser.resolveIfOpaque().advanceTo(PATH, i);
 						}
 						else {
 							parser.advanceTo(SCHEME_OR_PATH, i);
 						}
+					}
 				}
 			}
 
@@ -135,20 +124,12 @@ abstract class RfcUriParser {
 			@Override
 			public void handleNext(InternalParser parser, char c, int i) {
 				switch (c) {
-					case '/':
-						parser.componentIndex(i).captureHost().advanceTo(HOST, i + 1);  // empty host to start
-						break;
-					case '%':
-					case '@':
-					case ';':
-					case '?':
-					case '#':
-					case '.':
+					case '/' -> parser.componentIndex(i).captureHost().advanceTo(HOST, i + 1);  // empty host to start
+					case '%', '@', ';', '?', '#', '.' -> {
 						parser.index(--i);
 						parser.advanceTo(PATH);
-						break;
-					default:
-						parser.advanceTo(PATH);
+					}
+					default -> parser.advanceTo(PATH);
 				}
 			}
 
@@ -164,22 +145,11 @@ abstract class RfcUriParser {
 			@Override
 			public void handleNext(InternalParser parser, char c, int i) {
 				switch (c) {
-					case ':':
-						parser.captureScheme().advanceTo(START);
-						break;
-					case '/':
-					case ';':
-						parser.advanceTo(PATH);
-						break;
-					case '%':
-						parser.markPercentEncoding().advanceTo(PATH);
-						break;
-					case '?':
-						parser.capturePath().advanceTo(QUERY, i + 1);
-						break;
-					case '#':
-						parser.capturePath().advanceTo(FRAGMENT);
-						break;
+					case ':' -> parser.captureScheme().advanceTo(START);
+					case '/', ';' -> parser.advanceTo(PATH);
+					case '%' -> parser.markPercentEncoding().advanceTo(PATH);
+					case '?' -> parser.capturePath().advanceTo(QUERY, i + 1);
+					case '#' -> parser.capturePath().advanceTo(FRAGMENT, i + 1);
 				}
 			}
 
@@ -195,33 +165,22 @@ abstract class RfcUriParser {
 			@Override
 			public void handleNext(InternalParser parser, char c, int i) {
 				switch (c) {
-					case '/':
-						parser.captureHost().advanceTo(PATH, i);
-						break;
-					case ':':
-						parser.captureHostIfNotEmpty().advanceTo(PORT, i + 1);
-						break;
-					case '?':
-						parser.captureHostIfNotEmpty().advanceTo(QUERY, i + 1);
-						break;
-					case '#':
-						parser.captureHostIfNotEmpty().advanceTo(FRAGMENT, i + 1);
-						break;
-					case '@':
-						parser.captureUser().componentIndex(i + 1);
-						break;
-					case '[':
+					case '/' -> parser.captureHost().advanceTo(PATH, i);
+					case ':' -> parser.captureHostIfNotEmpty().advanceTo(PORT, i + 1);
+					case '?' -> parser.captureHostIfNotEmpty().advanceTo(QUERY, i + 1);
+					case '#' -> parser.captureHostIfNotEmpty().advanceTo(FRAGMENT, i + 1);
+					case '@' -> parser.captureUser().componentIndex(i + 1);
+					case '[' -> {
 						verify(parser.isAtStartOfComponent(), parser, "Bad authority");
 						parser.advanceTo(IPV6);
-						break;
-					case '%':
-						parser.markPercentEncoding();
-						break;
-					default:
+					}
+					case '%' -> parser.markPercentEncoding();
+					default -> {
 						boolean isAllowed = (parser.processCurlyBrackets(c) ||
 								parser.countDownPercentEncodingInHost(c) ||
 								HierarchicalUriComponents.Type.URI.isUnreservedOrSubDelimiter(c));
 						verify(isAllowed, parser, "Bad authority");
+					}
 				}
 			}
 
@@ -237,22 +196,26 @@ abstract class RfcUriParser {
 			@Override
 			public void handleNext(InternalParser parser, char c, int i) {
 				switch (c) {
-					case ']':
+					case ']' -> {
 						parser.index(++i);
 						parser.captureHost();
 						if (parser.hasNext()) {
-							if (parser.charAtIndex() == ':') {
+							char next = parser.charAtIndex();
+							if (next == ':') {
 								parser.advanceTo(PORT, i + 1);
 							}
-							else {
+							else if (next == '/') {
 								parser.advanceTo(PATH, i);
 							}
+							else {
+								fail(parser, "Bad authority");
+							}
 						}
-						break;
-					case ':':
-						break;
-					default:
-						verifyIsHexDigit(c, parser, "Bad authority");
+					}
+					case ':' -> {
+						// no-op
+					}
+					default -> verifyIsHexDigit(c, parser, "Bad authority");
 				}
 			}
 
@@ -302,18 +265,13 @@ abstract class RfcUriParser {
 			public void handleNext(InternalParser parser, char c, int i) {
 				if (!parser.countDownPercentEncodingInPath(c)) {
 					switch (c) {
-						case '?':
-							if (parser.isOpaque()) {
-								break;
+						case '?' -> {
+							if (!parser.isOpaque()) {
+								parser.capturePath().advanceTo(QUERY, i + 1);
 							}
-							parser.capturePath().advanceTo(QUERY, i + 1);
-							break;
-						case '#':
-							parser.capturePath().advanceTo(FRAGMENT, i + 1);
-							break;
-						case '%':
-							parser.markPercentEncoding();
-							break;
+						}
+						case '#' -> parser.capturePath().advanceTo(FRAGMENT, i + 1);
+						case '%' -> parser.markPercentEncoding();
 					}
 				}
 			}
@@ -541,7 +499,8 @@ abstract class RfcUriParser {
 
 		public InternalParser capturePort() {
 			verify(this.openCurlyBracketCount == 0, this, "Bad authority");
-			this.port = captureComponent("port");
+			String value = captureComponent("port");
+			this.port = (StringUtils.hasText(value) ? value : null);
 			return this;
 		}
 

@@ -24,6 +24,7 @@ import java.lang.reflect.Type;
 import com.google.gson.Gson;
 import org.jspecify.annotations.Nullable;
 
+import org.springframework.http.MediaType;
 import org.springframework.util.Assert;
 
 /**
@@ -105,10 +106,15 @@ public class GsonHttpMessageConverter extends AbstractJsonHttpMessageConverter {
 		else {
 			getGson().toJson(object, writer);
 		}
-		writer.flush();
 	}
 
 	@Override
+	public boolean canWriteRepeatedly(Object o, @Nullable MediaType contentType) {
+		return true;
+	}
+
+	@Override
+	@SuppressWarnings("removal")
 	protected boolean supportsRepeatableWrites(Object o) {
 		return true;
 	}

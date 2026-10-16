@@ -195,12 +195,12 @@ public class HandshakeWebSocketService implements WebSocketService, Lifecycle {
 
 		if (HttpMethod.GET == method) {
 			if (!"WebSocket".equalsIgnoreCase(headers.getUpgrade())) {
-				return handleBadRequest(exchange, "Invalid 'Upgrade' header: " + headers);
+				return handleBadRequest(exchange, "Can \"Upgrade\" only to \"WebSocket\".");
 			}
 
 			List<String> connectionValue = headers.getConnection();
 			if (!connectionValue.contains("Upgrade") && !connectionValue.contains("upgrade")) {
-				return handleBadRequest(exchange, "Invalid 'Connection' header: " + headers);
+				return handleBadRequest(exchange, "\"Connection\" must be \"upgrade\".");
 			}
 
 			String key = headers.getFirst(SEC_WEBSOCKET_KEY);
@@ -254,8 +254,7 @@ public class HandshakeWebSocketService implements WebSocketService, Lifecycle {
 		URI uri = request.getURI();
 		// Copy request headers, as they might be pooled and recycled by
 		// the server implementation once the handshake HTTP exchange is done.
-		HttpHeaders headers = new HttpHeaders();
-		headers.addAll(request.getHeaders());
+		HttpHeaders headers = HttpHeaders.copyOf(request.getHeaders());
 		MultiValueMap<String, HttpCookie> cookies = request.getCookies();
 		Mono<Principal> principal = exchange.getPrincipal();
 		String logPrefix = exchange.getLogPrefix();

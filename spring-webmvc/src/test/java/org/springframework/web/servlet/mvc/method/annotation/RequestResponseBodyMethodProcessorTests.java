@@ -24,6 +24,8 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonTypeName;
@@ -42,23 +44,25 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpInputMessage;
+import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.ByteArrayHttpMessageConverter;
+import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.ResourceHttpMessageConverter;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
-import org.springframework.http.converter.support.AllEncompassingFormHttpMessageConverter;
 import org.springframework.http.converter.xml.JacksonXmlHttpMessageConverter;
 import org.springframework.http.converter.xml.MappingJackson2XmlHttpMessageConverter;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.accept.ContentNegotiationManagerFactoryBean;
 import org.springframework.web.bind.WebDataBinder;
@@ -73,6 +77,7 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.support.ModelAndViewContainer;
 import org.springframework.web.testfixture.servlet.MockHttpServletRequest;
 import org.springframework.web.testfixture.servlet.MockHttpServletResponse;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.WebUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -133,7 +138,7 @@ class RequestResponseBodyMethodProcessorTests {
 		this.servletRequest.setContent(content.getBytes(StandardCharsets.UTF_8));
 		this.servletRequest.setContentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE);
 
-		List<HttpMessageConverter<?>> converters = List.of(new AllEncompassingFormHttpMessageConverter());
+		List<HttpMessageConverter<?>> converters = List.of(new FormHttpMessageConverter());
 		RequestResponseBodyMethodProcessor processor = new RequestResponseBodyMethodProcessor(converters);
 
 		@SuppressWarnings("unchecked")
@@ -372,6 +377,23 @@ class RequestResponseBodyMethodProcessorTests {
 		testProblemDetailMediaType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
 	}
 
+	@Test
+	void errorResponseInterceptorsWithRequest() throws Exception {
+		this.servletRequest.setRequestURI("/orders/42");
+		this.servletRequest.setQueryString("trace=on");
+		List<ErrorResponse.Interceptor> interceptors = List.of(
+				(detail, errorResponse) -> detail.setProperty("errorResponse", errorResponse != null),
+				new TraceParamInterceptor());
+		RequestResponseBodyMethodProcessor processor = new RequestResponseBodyMethodProcessor(
+				List.of(new JacksonJsonHttpMessageConverter()), null, List.of(), interceptors);
+		MethodParameter returnType =
+				new MethodParameter(getClass().getDeclaredMethod("handleAndReturnProblemDetail"), -1);
+
+		processor.handleReturnValue(new MyProblemDetail(HttpStatus.BAD_REQUEST), returnType, this.container, this.request);
+
+		assertThat(this.servletResponse.getContentAsString()).contains("\"errorResponse\":false", "\"trace\":\"on\"");
+	}
+
 	private void testProblemDetailMediaType(String expectedContentType) throws Exception {
 		MyProblemDetail problemDetail = new MyProblemDetail(HttpStatus.BAD_REQUEST);
 
@@ -393,7 +415,6 @@ class RequestResponseBodyMethodProcessorTests {
 			XmlAssert.assertThat(this.servletResponse.getContentAsString()).and("""
 						<problem xmlns="urn:ietf:rfc:7807">
 							<status>400</status>
-							<instance>/path</instance>
 							<title>Bad Request</title>
 						</problem>""")
 					.ignoreWhitespace()
@@ -403,8 +424,7 @@ class RequestResponseBodyMethodProcessorTests {
 			JSONAssert.assertEquals("""
 					{
 						"title":    "Bad Request",
-						"status":   400,
-						"instance": "/path"
+						"status":   400
 					}""", this.servletResponse.getContentAsString(), false);
 		}
 	}
@@ -1022,6 +1042,24 @@ class RequestResponseBodyMethodProcessorTests {
 		assertThat(value).isEqualTo("foo");
 	}
 
+	@Test // gh-36300
+	void shouldNotDuplicateInCompatibleMediaTypes() throws Exception {
+		Method method = TestRestController.class.getMethod("handle");
+		MethodParameter returnType = new MethodParameter(method, -1);
+
+		List<HttpMessageConverter<?>> converters = List.of(new StringHttpMessageConverter(), new JacksonJsonHttpMessageConverter());
+		RequestResponseBodyMethodProcessor processor = new RequestResponseBodyMethodProcessor(converters);
+
+		String accept = Stream.iterate(1, i -> i + 1)
+				.limit(48).map(i -> "application/" + i)
+				.collect(Collectors.joining(","));
+		accept = accept + ", application/json";
+		this.servletRequest.addHeader("Accept", accept);
+
+		processor.writeWithMessageConverters("spring framework", returnType, this.request);
+	}
+
+
 	private void assertContentDisposition(RequestResponseBodyMethodProcessor processor,
 			boolean expectContentDisposition, String requestURI, String comment) throws Exception {
 
@@ -1416,6 +1454,20 @@ class RequestResponseBodyMethodProcessorTests {
 		@Override
 		public String handle(String arg) {
 			return arg;
+		}
+	}
+
+
+	private static class TraceParamInterceptor implements ErrorResponse.Interceptor {
+
+		@Override
+		public void handleError(ProblemDetail detail, @Nullable ErrorResponse errorResponse) {
+		}
+
+		@Override
+		public void handleError(ProblemDetail detail, @Nullable ErrorResponse errorResponse, HttpRequest request) {
+			MultiValueMap<String, String> params = UriComponentsBuilder.fromUri(request.getURI()).build().getQueryParams();
+			detail.setProperty("trace", params.getFirst("trace"));
 		}
 	}
 

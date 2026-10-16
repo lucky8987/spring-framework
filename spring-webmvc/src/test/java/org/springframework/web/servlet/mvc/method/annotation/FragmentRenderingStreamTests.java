@@ -53,7 +53,7 @@ import static org.springframework.web.testfixture.method.ResolvableMethod.on;
  * @author Rossen Stoyanchev
  * @author Sebastien Deleuze
  */
-public class FragmentRenderingStreamTests {
+class FragmentRenderingStreamTests {
 
 	private final MockHttpServletRequest request = new MockHttpServletRequest();
 
@@ -104,14 +104,14 @@ public class FragmentRenderingStreamTests {
 		assertThat(this.response.getContentType()).isEqualTo("text/event-stream");
 		assertThat(this.response.getContentAsString()).isEqualTo(("""
 				event:fragment1
-				data:<p>
-				data:	Hello Foo
-				data:</p>
+				data: <p>
+				data: 	Hello Foo
+				data: </p>
 
 				event:fragment2
-				data:<p>
-				data:	Hello Bar
-				data:</p>
+				data: <p>
+				data: 	Hello Bar
+				data: </p>
 
 				"""));
 	}
@@ -134,14 +134,39 @@ public class FragmentRenderingStreamTests {
 		assertThat(this.response.getContentType()).isEqualTo("text/event-stream");
 		assertThat(this.response.getContentAsString()).isEqualTo(("""
 				event:fragment1
-				data:<p>
-				data:	Hello Foo
-				data:</p>
+				data: <p>
+				data: 	Hello Foo
+				data: </p>
 
 				event:fragment2
-				data:<p>
-				data:	Hello Bar
-				data:</p>
+				data: <p>
+				data: 	Hello Bar
+				data: </p>
+
+				"""));
+	}
+
+	@Test
+	void escapeViewFragment() throws Exception {
+		MethodParameter type = on(TestController.class).resolveReturnType(SseEmitter.class);
+
+		SseEmitter emitter = new SseEmitter();
+		this.handler.handleReturnValue(emitter, type, new ModelAndViewContainer(), webRequest);
+
+		assertThat(this.request.isAsyncStarted()).isTrue();
+		assertThat(this.response.getStatus()).isEqualTo(200);
+
+		ModelAndView mav1 = new ModelAndView("fragment1", Map.of("foo", "Foo\n and Bar"));
+
+		emitter.send(SseEmitter.event().data(mav1));
+
+		assertThat(this.response.getContentType()).isEqualTo("text/event-stream");
+		assertThat(this.response.getContentAsString()).isEqualTo(("""
+				event:fragment1
+				data: <p>
+				data: 	Hello Foo
+				data:  and Bar
+				data: </p>
 
 				"""));
 	}

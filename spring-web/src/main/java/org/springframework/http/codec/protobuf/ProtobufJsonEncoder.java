@@ -49,9 +49,12 @@ import org.springframework.util.MimeType;
  *
  * @author Brian Clozel
  * @since 6.2
+ * @see ProtobufHttpMessageWriter
  * @see ProtobufJsonDecoder
  */
 public class ProtobufJsonEncoder implements HttpMessageEncoder<Message> {
+
+	private static final byte[] NEWLINE_SEPARATOR = {'\n'};
 
 	private static final byte[] EMPTY_BYTES = new byte[0];
 
@@ -59,7 +62,8 @@ public class ProtobufJsonEncoder implements HttpMessageEncoder<Message> {
 
 	private static final List<MimeType> defaultMimeTypes = List.of(
 			MediaType.APPLICATION_JSON,
-			new MediaType("application", "*+json"));
+			new MediaType("application", "*+json"),
+			MediaType.APPLICATION_NDJSON);
 
 	private final JsonFormat.Printer printer;
 
@@ -80,7 +84,7 @@ public class ProtobufJsonEncoder implements HttpMessageEncoder<Message> {
 
 	@Override
 	public List<MediaType> getStreamingMediaTypes() {
-		return List.of(MediaType.APPLICATION_NDJSON);
+		return List.of(MediaType.APPLICATION_NDJSON, MediaType.APPLICATION_JSONL);
 	}
 
 	@Override
@@ -106,31 +110,49 @@ public class ProtobufJsonEncoder implements HttpMessageEncoder<Message> {
 	}
 
 	@Override
-	public Flux<DataBuffer> encode(Publisher<? extends Message> inputStream, DataBufferFactory bufferFactory, ResolvableType elementType, @Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
+	public Flux<DataBuffer> encode(
+			Publisher<? extends Message> inputStream, DataBufferFactory bufferFactory,
+			ResolvableType elementType, @Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
+
 		if (inputStream instanceof Mono) {
 			return Mono.from(inputStream)
 					.map(value -> encodeValue(value, bufferFactory, elementType, mimeType, hints))
 					.flux();
 		}
-		JsonArrayJoinHelper helper = new JsonArrayJoinHelper();
 
-		// Do not prepend JSON array prefix until first signal is known, onNext vs onError
-		// Keeps response not committed for error handling
-		return Flux.from(inputStream)
-				.map(value -> {
-					byte[] prefix = helper.getPrefix();
-					byte[] delimiter = helper.getDelimiter();
-					DataBuffer dataBuffer = encodeValue(value, bufferFactory, MESSAGE_TYPE, mimeType, hints);
-					return (prefix.length > 0 ?
-							bufferFactory.join(List.of(bufferFactory.wrap(prefix), bufferFactory.wrap(delimiter), dataBuffer)) :
-							bufferFactory.join(List.of(bufferFactory.wrap(delimiter), dataBuffer)));
-				})
-				.switchIfEmpty(Mono.fromCallable(() -> bufferFactory.wrap(helper.getPrefix())))
-				.concatWith(Mono.fromCallable(() -> bufferFactory.wrap(helper.getSuffix())));
+		byte[] separator = getStreamingMediaTypeSeparator(mimeType);
+		if (separator != null) {
+			return Flux.from(inputStream)
+					.map(value -> {
+						DataBuffer dataBuffer = encodeValue(value, bufferFactory, MESSAGE_TYPE, mimeType, hints);
+						return bufferFactory.join(List.of(dataBuffer, bufferFactory.wrap(separator)));
+					});
+		}
+		else {
+			JsonArrayJoinHelper helper = new JsonArrayJoinHelper();
+
+			// Do not prepend JSON array prefix until first signal is known, onNext vs onError
+			// Keeps response not committed for error handling
+			return Flux.from(inputStream)
+					.map(value -> {
+						byte[] prefix = helper.getPrefix();
+						byte[] delimiter = helper.getDelimiter();
+						DataBuffer delimiterBuffer = bufferFactory.wrap(delimiter);
+						DataBuffer dataBuffer = encodeValue(value, bufferFactory, MESSAGE_TYPE, mimeType, hints);
+						return (prefix.length > 0 ?
+								bufferFactory.join(List.of(bufferFactory.wrap(prefix), delimiterBuffer, dataBuffer)) :
+								bufferFactory.join(List.of(delimiterBuffer, dataBuffer)));
+					})
+					.switchIfEmpty(Mono.fromCallable(() -> bufferFactory.wrap(helper.getPrefix())))
+					.concatWith(Mono.fromCallable(() -> bufferFactory.wrap(helper.getSuffix())));
+		}
 	}
 
 	@Override
-	public DataBuffer encodeValue(Message message, DataBufferFactory bufferFactory, ResolvableType valueType, @Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
+	public DataBuffer encodeValue(
+			Message message, DataBufferFactory bufferFactory, ResolvableType valueType,
+			@Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
+
 		FastByteArrayOutputStream bos = new FastByteArrayOutputStream();
 		OutputStreamWriter writer = new OutputStreamWriter(bos, StandardCharsets.UTF_8);
 		try {
@@ -143,6 +165,23 @@ public class ProtobufJsonEncoder implements HttpMessageEncoder<Message> {
 			throw new IllegalStateException("Unexpected I/O error while writing to data buffer", ex);
 		}
 	}
+
+	/**
+	 * Return the separator to use for the given mime type.
+	 * <p>By default, this method returns new line {@code "\n"} if the given
+	 * mime type is one of the configured {@link #getStreamingMediaTypes
+	 * streaming} mime types.
+	 * @since 7.0.10
+	 */
+	protected byte @Nullable [] getStreamingMediaTypeSeparator(@Nullable MimeType mimeType) {
+		for (MediaType streamingMediaType : getStreamingMediaTypes()) {
+			if (streamingMediaType.isCompatibleWith(mimeType)) {
+				return NEWLINE_SEPARATOR;
+			}
+		}
+		return null;
+	}
+
 
 	private static class JsonArrayJoinHelper {
 

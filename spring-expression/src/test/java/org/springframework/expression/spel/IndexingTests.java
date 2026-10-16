@@ -55,6 +55,7 @@ import org.springframework.expression.spel.testresources.Person;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -66,6 +67,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.springframework.expression.spel.SpelMessage.EXCEPTION_DURING_INDEX_READ;
 import static org.springframework.expression.spel.SpelMessage.EXCEPTION_DURING_INDEX_WRITE;
 import static org.springframework.expression.spel.SpelMessage.INDEXING_NOT_SUPPORTED_FOR_TYPE;
+import static org.springframework.expression.spel.SpelMessage.UNABLE_TO_GROW_COLLECTION;
 import static org.springframework.expression.spel.SpelMessage.UNABLE_TO_GROW_COLLECTION_UNKNOWN_ELEMENT_TYPE;
 
 @SuppressWarnings("rawtypes")
@@ -159,7 +161,8 @@ class IndexingTests {
 
 	@Test
 	void setPropertyContainingMapAutoGrow() {
-		SpelExpressionParser parser = new SpelExpressionParser(new SpelParserConfiguration(true, false));
+		SpelExpressionParser parser = new SpelExpressionParser(
+				SpelParserConfiguration.builder().autoGrowNullReferences().build());
 		Expression expression = parser.parseExpression("parameterizedMap");
 		assertThat(expression.getValueTypeDescriptor(this)).asString()
 				.isEqualTo("java.util.Map<java.lang.Integer, java.lang.Integer>");
@@ -204,7 +207,8 @@ class IndexingTests {
 	void setGenericPropertyContainingListAutogrow() {
 		List<Integer> property = new ArrayList<>();
 		this.property = property;
-		SpelExpressionParser parser = new SpelExpressionParser(new SpelParserConfiguration(true, true));
+		SpelExpressionParser parser = new SpelExpressionParser(
+				SpelParserConfiguration.builder().autoGrowNullReferences().autoGrowCollections().build());
 		Expression expression = parser.parseExpression("property");
 		assertThat(expression.getValueTypeDescriptor(this)).asString()
 				.isEqualTo("@%s java.util.ArrayList<?>", FieldAnnotation.class.getCanonicalName());
@@ -219,7 +223,8 @@ class IndexingTests {
 	@Test
 	void autoGrowListOfElementsWithoutDefaultConstructor() {
 		this.decimals = new ArrayList<>();
-		SpelExpressionParser parser = new SpelExpressionParser(new SpelParserConfiguration(true, true));
+		SpelExpressionParser parser = new SpelExpressionParser(
+				SpelParserConfiguration.builder().autoGrowNullReferences().autoGrowCollections().build());
 		parser.parseExpression("decimals[0]").setValue(this, "123.4");
 		assertThat(decimals).containsExactly(BigDecimal.valueOf(123.4));
 	}
@@ -229,7 +234,8 @@ class IndexingTests {
 		this.decimals = new ArrayList<>();
 		this.decimals.add(null);
 		this.decimals.add(BigDecimal.ONE);
-		SpelExpressionParser parser = new SpelExpressionParser(new SpelParserConfiguration(true, true));
+		SpelExpressionParser parser = new SpelExpressionParser(
+				SpelParserConfiguration.builder().autoGrowNullReferences().autoGrowCollections().build());
 		parser.parseExpression("decimals[0]").setValue(this, "9876.5");
 		assertThat(decimals).containsExactly(BigDecimal.valueOf(9876.5), BigDecimal.ONE);
 	}
@@ -280,7 +286,8 @@ class IndexingTests {
 
 	@Test
 	void indexIntoGenericPropertyContainingNullList() {
-		SpelParserConfiguration configuration = new SpelParserConfiguration(true, true);
+		SpelParserConfiguration configuration =
+				SpelParserConfiguration.builder().autoGrowNullReferences().autoGrowCollections().build();
 		SpelExpressionParser parser = new SpelExpressionParser(configuration);
 		Expression expression = parser.parseExpression("property");
 		assertThat(expression.getValueTypeDescriptor(this)).asString()
@@ -297,7 +304,8 @@ class IndexingTests {
 	void indexIntoGenericPropertyContainingGrowingList() {
 		List<String> property = new ArrayList<>();
 		this.property = property;
-		SpelParserConfiguration configuration = new SpelParserConfiguration(true, true);
+		SpelParserConfiguration configuration =
+				SpelParserConfiguration.builder().autoGrowNullReferences().autoGrowCollections().build();
 		SpelExpressionParser parser = new SpelExpressionParser(configuration);
 		Expression expression = parser.parseExpression("property");
 		assertThat(expression.getValueTypeDescriptor(this)).asString()
@@ -314,7 +322,8 @@ class IndexingTests {
 	void indexIntoGenericPropertyContainingGrowingList2() {
 		List<String> property2 = new ArrayList<>();
 		this.property2 = property2;
-		SpelParserConfiguration configuration = new SpelParserConfiguration(true, true);
+		SpelParserConfiguration configuration =
+				SpelParserConfiguration.builder().autoGrowNullReferences().autoGrowCollections().build();
 		SpelExpressionParser parser = new SpelExpressionParser(configuration);
 		Expression expression = parser.parseExpression("property2");
 		assertThat(expression.getValueTypeDescriptor(this)).asString().isEqualTo("java.util.ArrayList<?>");
@@ -324,6 +333,67 @@ class IndexingTests {
 		assertThatExceptionOfType(SpelEvaluationException.class)
 				.isThrownBy(() -> indexExpression.getValue(this))
 				.satisfies(ex -> assertThat(ex.getMessageCode()).isEqualTo(UNABLE_TO_GROW_COLLECTION_UNKNOWN_ELEMENT_TYPE));
+	}
+
+	@Nested  // gh-36995
+	class MaxAutoGrowSizeTests {
+
+		@Test
+		void defaultMaxAutoGrowSizeMatchesDataBinderDefault() {
+			SpelParserConfiguration configuration =
+					SpelParserConfiguration.builder().autoGrowNullReferences().autoGrowCollections().build();
+			assertThat(configuration.getMaximumAutoGrowSize())
+					.isEqualTo(SpelParserConfiguration.DEFAULT_MAX_AUTO_GROW_SIZE)
+					.isEqualTo(256);
+		}
+
+		@Test
+		void zeroMaximumAutoGrowSizeIsAllowedAndDisablesGrowth() {
+			decimals = new ArrayList<>();
+			SpelParserConfiguration configuration = SpelParserConfiguration.builder()
+					.autoGrowNullReferences().autoGrowCollections().maximumAutoGrowSize(0).build();
+			SpelExpressionParser parser = new SpelExpressionParser(configuration);
+
+			Expression indexExpression = parser.parseExpression("decimals[0]");
+			assertThatExceptionOfType(SpelEvaluationException.class)
+					.isThrownBy(() -> indexExpression.getValue(IndexingTests.this))
+					.satisfies(ex -> assertThat(ex.getMessageCode()).isEqualTo(UNABLE_TO_GROW_COLLECTION));
+		}
+
+		@Test
+		void negativeMaximumAutoGrowSizeIsRejected() {
+			assertThatIllegalArgumentException()
+					.isThrownBy(() -> SpelParserConfiguration.builder().maximumAutoGrowSize(-1))
+					.withMessage("'maximumAutoGrowSize' must not be negative");
+		}
+
+		@Test
+		void collectionGrowsUpToDefaultMaxAutoGrowSizeButNotBeyond() {
+			decimals = new ArrayList<>();
+			SpelExpressionParser parser = new SpelExpressionParser(
+					SpelParserConfiguration.builder().autoGrowNullReferences().autoGrowCollections().build());
+
+			// Growing up to the default maximum auto-grow size should succeed.
+			parser.parseExpression("decimals[255]").getValue(IndexingTests.this);
+			assertThat(decimals).hasSize(256);
+
+			// Growing beyond the default maximum auto-grow size should fail.
+			Expression indexExpression = parser.parseExpression("decimals[256]");
+			assertThatExceptionOfType(SpelEvaluationException.class)
+					.isThrownBy(() -> indexExpression.getValue(IndexingTests.this))
+					.satisfies(ex -> assertThat(ex.getMessageCode()).isEqualTo(UNABLE_TO_GROW_COLLECTION));
+		}
+
+		@Test
+		void collectionCanGrowBeyondDefaultMaxAutoGrowSizeWhenConfiguredExplicitly() {
+			decimals = new ArrayList<>();
+			SpelParserConfiguration configuration = SpelParserConfiguration.builder()
+					.autoGrowNullReferences().autoGrowCollections().maximumAutoGrowSize(1000).build();
+			SpelExpressionParser parser = new SpelExpressionParser(configuration);
+
+			parser.parseExpression("decimals[500]").getValue(IndexingTests.this);
+			assertThat(decimals).hasSize(501);
+		}
 	}
 
 	@Test
@@ -845,6 +915,82 @@ class IndexingTests {
 				ArrayNode arrayNode = (ArrayNode) target;
 				Integer intIndex = (Integer) index;
 				arrayNode.set(intIndex, this.objectMapper.convertValue(newValue, JsonNode.class));
+			}
+		}
+	}
+
+	@Nested
+	class PropertyAccessorValueRefTests {  // gh-36986
+
+		private final StandardEvaluationContext context = new StandardEvaluationContext();
+
+		private final SpelExpressionParser parser = new SpelExpressionParser();
+
+		@Test
+		void readIndexDoesNotUseRemovedPropertyAccessor() {
+			Person person = new Person("Jane");
+			this.context.setVariable("person", person);
+			PropertyAccessor accessor = new UppercasingPropertyAccessor();
+			this.context.addPropertyAccessor(accessor);
+
+			Expression expression = this.parser.parseExpression("#person['name']");
+
+			// The first evaluation resolves and caches the custom accessor.
+			assertThat(expression.getValue(this.context)).isEqualTo("JANE");
+
+			// Simulate an application reconfiguring the context at runtime.
+			this.context.removePropertyAccessor(accessor);
+
+			// The removed accessor must not be reused for subsequent evaluations.
+			assertThat(expression.getValue(this.context)).isEqualTo("Jane");
+		}
+
+		@Test
+		void writeIndexDoesNotUseRemovedPropertyAccessor() {
+			Person person = new Person("Jane");
+			this.context.setVariable("person", person);
+			PropertyAccessor accessor = new UppercasingPropertyAccessor();
+			this.context.addPropertyAccessor(accessor);
+
+			Expression expression = this.parser.parseExpression("#person['name']");
+
+			// The first write resolves and caches the custom accessor.
+			expression.setValue(this.context, "Alice");
+			assertThat(person.getName()).isEqualTo("custom:Alice");
+
+			// Simulate an application reconfiguring the context at runtime.
+			this.context.removePropertyAccessor(accessor);
+
+			// The removed accessor must not be reused for subsequent writes.
+			expression.setValue(this.context, "Bob");
+			assertThat(person.getName()).isEqualTo("Bob");
+		}
+
+		private static class UppercasingPropertyAccessor implements PropertyAccessor {
+
+			@Override
+			public Class<?>[] getSpecificTargetClasses() {
+				return new Class<?>[] {Person.class};
+			}
+
+			@Override
+			public boolean canRead(EvaluationContext context, @Nullable Object target, String name) {
+				return "name".equals(name);
+			}
+
+			@Override
+			public TypedValue read(EvaluationContext context, @Nullable Object target, String name) {
+				return new TypedValue(((Person) target).getName().toUpperCase());
+			}
+
+			@Override
+			public boolean canWrite(EvaluationContext context, @Nullable Object target, String name) {
+				return "name".equals(name);
+			}
+
+			@Override
+			public void write(EvaluationContext context, @Nullable Object target, String name, @Nullable Object newValue) {
+				((Person) target).setName("custom:" + newValue);
 			}
 		}
 	}
